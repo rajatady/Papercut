@@ -5,10 +5,11 @@
 <h1 align="center">Papercut</h1>
 
 <p align="center">
-  <strong>A beautiful, privacy-first research paper reader for iOS</strong>
+  <strong>Swipe through research. AI explains the rest.</strong>
 </p>
 
 <p align="center">
+  A beautiful, privacy-first research paper reader for iOS.<br/>
   Browse, search, and summarize papers from arXiv — entirely on-device.
 </p>
 
@@ -20,9 +21,11 @@
 
 ## What is Papercut?
 
-Papercut is a free, open-source iOS app that turns arXiv into a TikTok-style feed of research papers. Swipe through the latest and trending papers in your fields of interest, get AI-generated summaries powered by Apple's on-device Foundation Models, and save papers for offline reading.
+Papercut turns arXiv into a TikTok-style feed of research papers. One paper per screen. Swipe up to discover. Tap for AI-powered summaries. Everything happens on your device.
 
-Everything happens on your device. Your reading habits, interests, and saved papers never leave your phone.
+**Swipe up** through the latest and trending papers in your fields. **Tap for AI magic** — get TL;DRs, key findings, math explained, code walkthroughs, and more. **Search anything** across arXiv's 2M+ papers. **Save for later** with a single tap.
+
+Your reading habits, interests, and saved papers never leave your phone.
 
 ## Features
 
