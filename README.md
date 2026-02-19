@@ -5,7 +5,7 @@
 <h1 align="center">Papercut</h1>
 
 <p align="center">
-  <strong>Swipe through research. AI explains the rest.</strong>
+  <strong>Research, distilled.</strong>
 </p>
 
 <p align="center">

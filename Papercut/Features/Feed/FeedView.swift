@@ -53,6 +53,11 @@ struct FeedView: View {
                 selectedTab = newTab
             }
         }
+        .onChange(of: preferencesStore.followedCategories) {
+            Task {
+                await viewModel.refresh()
+            }
+        }
         .task {
             if viewModel.papers.isEmpty {
                 await viewModel.loadPapers()

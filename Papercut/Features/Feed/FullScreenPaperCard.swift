@@ -144,24 +144,36 @@ struct FullScreenPaperCard: View {
     // MARK: - Category & Date Row
 
     private var categoryDateRow: some View {
-        HStack(alignment: .center) {
-            // Categories
-            HStack(spacing: Spacing.sm) {
-                ForEach(paper.categories.prefix(2), id: \.self) { cat in
-                    Text(cat)
-                        .font(.caption)
-                        .fontWeight(.semibold)
-                        .foregroundStyle(theme.colors.textPrimary)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .background(theme.colors.glassOverlay.opacity(theme.colors.glassOverlayOpacity))
-                        .clipShape(Capsule())
+        HStack(alignment: .center, spacing: Spacing.sm) {
+            // Categories — show up to 3, scrollable if they overflow
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: Spacing.sm) {
+                    ForEach(paper.categories.prefix(3), id: \.self) { cat in
+                        Text(cat)
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                            .lineLimit(1)
+                            .foregroundStyle(theme.colors.textPrimary)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(theme.colors.glassOverlay.opacity(theme.colors.glassOverlayOpacity))
+                            .clipShape(Capsule())
+                    }
+
+                    if paper.categories.count > 3 {
+                        Text("+\(paper.categories.count - 3)")
+                            .font(.caption)
+                            .fontWeight(.medium)
+                            .foregroundStyle(theme.colors.textMuted)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 5)
+                            .background(theme.colors.glassOverlay.opacity(theme.colors.glassOverlayOpacity * 0.5))
+                            .clipShape(Capsule())
+                    }
                 }
             }
 
-            Spacer()
-
-            // Date & New badge
+            // Date & New badge — pinned to trailing edge
             HStack(spacing: Spacing.md) {
                 if paper.isRecent {
                     HStack(spacing: Spacing.xs) {
@@ -182,6 +194,7 @@ struct FullScreenPaperCard: View {
                     .font(.caption)
                     .foregroundStyle(theme.colors.textMuted)
             }
+            .fixedSize()
         }
     }
 
