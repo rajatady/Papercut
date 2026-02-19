@@ -14,24 +14,17 @@ struct FullScreenPaperCard: View {
     let onOpenPDF: () -> Void
     let onOpenAbstract: () -> Void
     let onShare: () -> Void
+    let onToggleBookmark: () -> Void
 
     @Environment(ThemeManager.self) private var theme
     @State private var showAbstract = false
     @State private var animateSummary = false
-    @State private var isBookmarked = false
     @State private var breatheScale: CGFloat = 1.0
-    private let bookmarkStore = BookmarkStore.shared
 
-    /// Safe area insets from the window (reliable even when parent ignores safe area)
-    private var windowSafeArea: UIEdgeInsets {
-        UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .first?.windows.first?.safeAreaInsets ?? .zero
-    }
-    /// Top offset: safe area (status bar/dynamic island) + glass header height
-    private var topInset: CGFloat { windowSafeArea.top + 40 }
-    /// Bottom offset: home indicator safe area
-    private var bottomInset: CGFloat { max(windowSafeArea.bottom, Spacing.xl) }
+    /// Top offset: clearance for floating settings button overlay
+    private let topInset: CGFloat = 44
+    /// Bottom offset: breathing room above container edge (tab bar is handled by TabView)
+    private let bottomInset: CGFloat = Spacing.lg
 
     private var palette: CategoryColors.Palette {
         CategoryColors.palette(for: paper.primaryCategory)
@@ -293,6 +286,7 @@ struct FullScreenPaperCard: View {
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 30)
                     }
+                    .buttonStyle(PressButtonStyle())
                 }
             }
         }
@@ -389,7 +383,8 @@ struct FullScreenPaperCard: View {
                     .strokeBorder(isSelected ? style.accentColor : .clear, lineWidth: 2)
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PressButtonStyle())
+        .sensoryFeedback(.selection, trigger: selectedStyle)
     }
 
     // MARK: - Bottom Actions
@@ -399,21 +394,22 @@ struct FullScreenPaperCard: View {
             // Bookmark Button
             Button {
                 withAnimation(AppAnimation.Interactive.spring) {
-                    bookmarkStore.toggle(paper.id)
-                    isBookmarked = bookmarkStore.isBookmarked(paper.id)
+                    onToggleBookmark()
                 }
             } label: {
                 VStack(spacing: Spacing.xs) {
-                    Image(systemName: isBookmarked ? "bookmark.fill" : "bookmark")
+                    Image(systemName: paper.isBookmarked ? "bookmark.fill" : "bookmark")
                         .font(.title3)
-                        .foregroundStyle(isBookmarked ? Color(hex: "E4C95B") : theme.colors.textPrimary)
-                        .scaleEffect(isBookmarked ? 1.1 : 1.0)
-                    Text(isBookmarked ? "Saved" : "Save")
+                        .foregroundStyle(paper.isBookmarked ? Color(hex: "E4C95B") : theme.colors.textPrimary)
+                        .scaleEffect(paper.isBookmarked ? 1.1 : 1.0)
+                    Text(paper.isBookmarked ? "Saved" : "Save")
                         .font(.caption2)
-                        .foregroundStyle(isBookmarked ? Color(hex: "E4C95B") : theme.colors.textPrimary)
+                        .foregroundStyle(paper.isBookmarked ? Color(hex: "E4C95B") : theme.colors.textPrimary)
                 }
                 .frame(minWidth: 50)
             }
+            .buttonStyle(SoftPressButtonStyle())
+            .sensoryFeedback(.impact(weight: .medium), trigger: paper.isBookmarked)
 
             Spacer()
 
@@ -441,13 +437,15 @@ struct FullScreenPaperCard: View {
         .padding(.horizontal, Spacing.xl)
         .background(theme.colors.surface.opacity(theme.isDark ? 0.1 : 0.4))
         .clipShape(RoundedRectangle(cornerRadius: Spacing.xl))
-        .onAppear {
-            isBookmarked = bookmarkStore.isBookmarked(paper.id)
-        }
     }
 
+    @State private var actionTapCount = 0
+
     private func actionButton(icon: String, label: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
+        Button {
+            actionTapCount += 1
+            action()
+        } label: {
             VStack(spacing: Spacing.xs) {
                 Image(systemName: icon)
                     .font(.title3)
@@ -456,7 +454,10 @@ struct FullScreenPaperCard: View {
             }
             .foregroundStyle(theme.colors.textPrimary)
             .frame(minWidth: 60)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(SoftPressButtonStyle())
+        .sensoryFeedback(.impact(flexibility: .soft, intensity: 0.5), trigger: actionTapCount)
     }
 }
 
@@ -568,7 +569,8 @@ struct AbstractSheet: View {
         onStyleSelected: { _ in },
         onOpenPDF: {},
         onOpenAbstract: {},
-        onShare: {}
+        onShare: {},
+        onToggleBookmark: {}
     )
     .environment(ThemeManager())
 }

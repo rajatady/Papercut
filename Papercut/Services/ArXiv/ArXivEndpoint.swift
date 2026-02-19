@@ -93,7 +93,8 @@ enum ArXivEndpoint {
     }
 
     private func buildTrendingURL(categories: [String], maxResults: Int) -> URL? {
-        // For trending, we use relevance sorting which ArXiv interprets as popularity
+        // Trending: papers from the last 30 days in user's categories,
+        // sorted by relevance (cross-listing frequency + category match).
         var components = URLComponents()
         components.scheme = "https"
         components.host = "export.arxiv.org"
@@ -103,8 +104,19 @@ enum ArXivEndpoint {
             .map { "cat:\($0)" }
             .joined(separator: " OR ")
 
+        // Date range: 30 days ago to now, format YYYYMMDDTTTT
+        let now = Date()
+        let thirtyDaysAgo = Calendar.current.date(byAdding: .day, value: -30, to: now) ?? now
+        let fmt = DateFormatter()
+        fmt.dateFormat = "yyyyMMdd"
+        fmt.timeZone = TimeZone(identifier: "GMT")
+        let fromDate = fmt.string(from: thirtyDaysAgo) + "0000"
+        let toDate = fmt.string(from: now) + "2359"
+
+        let fullQuery = "(\(categoryQuery)) AND submittedDate:[\(fromDate) TO \(toDate)]"
+
         components.queryItems = [
-            URLQueryItem(name: "search_query", value: categoryQuery),
+            URLQueryItem(name: "search_query", value: fullQuery),
             URLQueryItem(name: "start", value: "0"),
             URLQueryItem(name: "max_results", value: String(maxResults)),
             URLQueryItem(name: "sortBy", value: ArXivSortBy.relevance.rawValue),

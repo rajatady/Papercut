@@ -46,3 +46,29 @@ enum AppAnimation {
         static let spring: Animation = .spring(response: 0.3, dampingFraction: 0.6)
     }
 }
+
+// MARK: - Press-feedback Button Styles
+
+/// Scales down on press with a snappy spring bounce-back.
+/// Used for chips, CTA buttons, and generate buttons.
+struct PressButtonStyle: ButtonStyle {
+    var scale: CGFloat = 0.90
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? scale : 1)
+            .opacity(configuration.isPressed ? 0.7 : 1)
+            .animation(.spring(response: 0.2, dampingFraction: 0.55), value: configuration.isPressed)
+    }
+}
+
+/// Press style for icon buttons (settings, search, action bar icons).
+/// Shrinks more aggressively so small targets feel responsive.
+struct SoftPressButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.82 : 1)
+            .opacity(configuration.isPressed ? 0.6 : 1)
+            .animation(.spring(response: 0.15, dampingFraction: 0.55), value: configuration.isPressed)
+    }
+}

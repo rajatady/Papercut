@@ -12,21 +12,10 @@ struct SettingsView: View {
 
     @State private var showingCategoryPicker = false
     @State private var showingStylePicker = false
-    @State private var showingSearch = false
 
     var body: some View {
         NavigationStack {
             List {
-                // Search
-                Section {
-                    Button {
-                        showingSearch = true
-                    } label: {
-                        Label("Search Papers", systemImage: "magnifyingglass")
-                            .foregroundStyle(theme.colors.textPrimary)
-                    }
-                }
-
                 // Appearance Section
                 Section {
                     HStack {
@@ -147,6 +136,34 @@ struct SettingsView: View {
                     Text("Feed")
                 }
 
+                // Feedback & Support
+                Section {
+                    feedbackLink(
+                        icon: "ladybug",
+                        iconColor: .red,
+                        title: "Report a Bug",
+                        urlString: Self.bugReportURL
+                    )
+
+                    feedbackLink(
+                        icon: "lightbulb",
+                        iconColor: Color(hex: "E4A853"),
+                        title: "Request a Feature",
+                        urlString: Self.featureRequestURL
+                    )
+
+                    feedbackLink(
+                        icon: "star",
+                        iconColor: Color(hex: "E4C95B"),
+                        title: "Star on GitHub",
+                        urlString: "https://github.com/rajatady/Papercut"
+                    )
+                } header: {
+                    Text("Feedback")
+                } footer: {
+                    Text("Papercut is open source. Your feedback helps make it better.")
+                }
+
                 // About Section
                 Section {
                     HStack {
@@ -156,9 +173,20 @@ struct SettingsView: View {
                             .foregroundStyle(theme.colors.textSecondary)
                     }
 
-                    Link(destination: URL(string: "https://arxiv.org") ?? URL(string: "about:blank")!) {
+                    Link(destination: URL(string: "https://arxiv.org")!) {
                         HStack {
                             Label("ArXiv Website", systemImage: "link")
+                                .foregroundStyle(theme.colors.textPrimary)
+                            Spacer()
+                            Image(systemName: "arrow.up.right")
+                                .font(.caption)
+                                .foregroundStyle(theme.colors.textTertiary)
+                        }
+                    }
+
+                    Link(destination: URL(string: "https://github.com/rajatady/Papercut")!) {
+                        HStack {
+                            Label("Source Code", systemImage: "chevron.left.forwardslash.chevron.right")
                                 .foregroundStyle(theme.colors.textPrimary)
                             Spacer()
                             Image(systemName: "arrow.up.right")
@@ -197,10 +225,84 @@ struct SettingsView: View {
             .sheet(isPresented: $showingStylePicker) {
                 SummaryStylePicker()
             }
-            .sheet(isPresented: $showingSearch) {
-                SearchView()
+        }
+    }
+}
+
+// MARK: - Feedback Helpers
+extension SettingsView {
+    private static let repo = "rajatady/Papercut"
+
+    static var bugReportURL: String {
+        let title = ""
+        let body = """
+        **Describe the bug**
+        A clear description of what the bug is.
+
+        **Steps to reproduce**
+        1.
+        2.
+        3.
+
+        **Expected behavior**
+
+
+        **Device info**
+        - Device: \(deviceName)
+        - iOS: \(UIDevice.current.systemVersion)
+        - App version: 1.0.0
+        """
+        return "https://github.com/\(repo)/issues/new?labels=bug&title=\(title.urlEncoded)&body=\(body.urlEncoded)"
+    }
+
+    static var featureRequestURL: String {
+        let body = """
+        **What would you like?**
+        A clear description of the feature.
+
+        **Why is this useful?**
+
+
+        **Anything else?**
+
+        """
+        return "https://github.com/\(repo)/issues/new?labels=enhancement&title=&body=\(body.urlEncoded)"
+    }
+
+    private static var deviceName: String {
+        var systemInfo = utsname()
+        uname(&systemInfo)
+        return withUnsafePointer(to: &systemInfo.machine) {
+            $0.withMemoryRebound(to: CChar.self, capacity: 1) {
+                String(validatingCString: $0) ?? UIDevice.current.model
             }
         }
+    }
+
+    private func feedbackLink(icon: String, iconColor: Color, title: String, urlString: String) -> some View {
+        Link(destination: URL(string: urlString)!) {
+            HStack {
+                Label {
+                    Text(title)
+                        .foregroundStyle(theme.colors.textPrimary)
+                } icon: {
+                    Image(systemName: icon)
+                        .foregroundStyle(iconColor)
+                }
+
+                Spacer()
+
+                Image(systemName: "arrow.up.right")
+                    .font(.caption)
+                    .foregroundStyle(theme.colors.textTertiary)
+            }
+        }
+    }
+}
+
+private extension String {
+    var urlEncoded: String {
+        addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? self
     }
 }
 

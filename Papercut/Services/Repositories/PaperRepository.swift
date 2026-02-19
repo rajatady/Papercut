@@ -88,7 +88,9 @@ final class PaperRepository: PaperRepositoryProtocol {
         hasMorePapers = response.hasMore
         currentPage = page
 
-        // Save to cache
+        // Merge into SwiftData and return the persisted objects
+        // (so bookmark state etc. is preserved)
+        var result: [Paper] = []
         for paper in response.papers {
             let paperId = paper.id
             let existingPapers = try fetchPaperById(paperId)
@@ -100,14 +102,16 @@ final class PaperRepository: PaperRepositoryProtocol {
                 existing.categoriesData = paper.categoriesData
                 existing.updatedDate = paper.updatedDate
                 existing.markAsRefreshed()
+                result.append(existing)
             } else {
                 modelContext.insert(paper)
+                result.append(paper)
             }
         }
 
         try modelContext.save()
 
-        return response.papers
+        return result
     }
 
     func searchPapers(query: String, page: Int = 0) async throws -> [Paper] {
@@ -236,6 +240,24 @@ final class PaperRepository: PaperRepositoryProtocol {
 
     // MARK: - Cleanup
 
+    // MARK: - Bookmarks
+
+    func fetchBookmarkedPapers() -> [Paper] {
+        var descriptor = FetchDescriptor<Paper>(
+            predicate: #Predicate<Paper> { $0.isBookmarked == true }
+        )
+        descriptor.sortBy = [SortDescriptor(\.bookmarkedAt, order: .reverse)]
+        return (try? modelContext.fetch(descriptor)) ?? []
+    }
+
+    func toggleBookmark(for paper: Paper) {
+        paper.isBookmarked.toggle()
+        paper.bookmarkedAt = paper.isBookmarked ? Date() : nil
+        try? modelContext.save()
+    }
+
+    // MARK: - Cleanup
+
     func cleanupOldPapers(retentionDays: Int) async {
         let cutoffDate = Calendar.current.date(
             byAdding: .day,
@@ -247,7 +269,8 @@ final class PaperRepository: PaperRepositoryProtocol {
 
         do {
             let allPapers = try modelContext.fetch(descriptor)
-            let oldPapers = allPapers.filter { $0.fetchedAt < cutoffDate }
+            // Never delete bookmarked papers
+            let oldPapers = allPapers.filter { $0.fetchedAt < cutoffDate && !$0.isBookmarked }
             for paper in oldPapers {
                 modelContext.delete(paper)
             }

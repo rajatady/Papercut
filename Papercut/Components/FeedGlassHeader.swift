@@ -6,7 +6,6 @@
 import SwiftUI
 
 /// Floating glass header — tabs + single action icon.
-/// Content scrolls behind it via `.ultraThinMaterial`.
 struct FeedGlassHeader: View {
     let tabs: [FeedTab]
     @Binding var selectedIndex: Int
@@ -19,7 +18,6 @@ struct FeedGlassHeader: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(alignment: .center) {
-                // Tab labels — tappable, synced with horizontal swipe
                 tabStrip
 
                 Spacer(minLength: 0)
@@ -44,7 +42,7 @@ struct FeedGlassHeader: View {
             .padding(.top, Spacing.xs)
             .padding(.bottom, Spacing.sm)
         }
-        .background(.ultraThinMaterial)
+        .glassEffect(.regular, in: .rect)
     }
 
     // MARK: - Tab Strip
@@ -58,9 +56,14 @@ struct FeedGlassHeader: View {
                     }
                 } label: {
                     VStack(spacing: 3) {
-                        Text(tab.rawValue)
-                            .font(.system(size: 14, weight: selectedIndex == index ? .semibold : .regular))
-                            .foregroundStyle(selectedIndex == index ? theme.colors.textPrimary : theme.colors.textMuted)
+                        HStack(spacing: Spacing.xs) {
+                            Image(systemName: tab.iconName)
+                                .font(.system(size: 11))
+
+                            Text(tab.rawValue)
+                                .font(.system(size: 14, weight: selectedIndex == index ? .semibold : .regular))
+                        }
+                        .foregroundStyle(selectedIndex == index ? theme.colors.textPrimary : theme.colors.textMuted)
 
                         // Sliding underline
                         if selectedIndex == index {

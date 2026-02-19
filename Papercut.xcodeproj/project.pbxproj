@@ -371,7 +371,7 @@
 					};
 				};
 			};
-			buildConfigurationList = 0D2FAB302F231C0D003DCCB0 /* Build configuration list for PBXProject "research-pro" */;
+			buildConfigurationList = 0D2FAB302F231C0D003DCCB0 /* Build configuration list for PBXProject "Papercut" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -753,7 +753,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		0D2FAB302F231C0D003DCCB0 /* Build configuration list for PBXProject "research-pro" */ = {
+		0D2FAB302F231C0D003DCCB0 /* Build configuration list for PBXProject "Papercut" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				0D2FAB542F231C0E003DCCB0 /* Debug */,

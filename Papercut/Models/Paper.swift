@@ -18,6 +18,8 @@ final class Paper {
     var pdfURL: String = ""
     var abstractURL: String = ""
     var fetchedAt: Date = Date()
+    var isBookmarked: Bool = false
+    var bookmarkedAt: Date? = nil
 
     @Relationship(deleteRule: .cascade) var summaries: [Summary] = []
 

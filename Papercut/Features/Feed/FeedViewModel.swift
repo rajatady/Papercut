@@ -8,16 +8,14 @@ import SwiftUI
 import SwiftData
 
 enum FeedTab: String, CaseIterable {
-    case forYou = "For You"
-    case trending = "Trending"
     case latest = "Latest"
+    case trending = "Trending"
     case saved = "Saved"
 
     var iconName: String {
         switch self {
-        case .forYou: return "sparkles"
-        case .trending: return "flame.fill"
         case .latest: return "clock.fill"
+        case .trending: return "flame.fill"
         case .saved: return "bookmark.fill"
         }
     }
@@ -40,7 +38,7 @@ final class FeedViewModel: SummarizationQueueDelegate {
     private(set) var isRefreshingInBackground = false
 
     // Current feed state
-    var currentTab: FeedTab = .forYou
+    var currentTab: FeedTab = .latest
     var currentPaperIndex: Int = 0
 
     // Search state
@@ -54,12 +52,18 @@ final class FeedViewModel: SummarizationQueueDelegate {
     var selectedStyles: [String: SummaryStyle] = [:]
     var completedSummaries: [String: String] = [:] // requestId -> content
 
+    /// Monotonically increasing counter — any load whose captured generation
+    /// doesn't match the current value is stale and must be discarded.
+    private var loadGeneration: UInt = 0
+
+    /// The currently running load task so it can be cancelled on tab switch.
+    private var activeLoadTask: Task<Void, Never>?
+
     // MARK: - Dependencies
     let paperRepository: PaperRepository
     private let preferencesStore: PreferencesStore
     private let cloudStore = CloudSummaryStore.shared
     private let summarizationQueue = SummarizationQueue.shared
-    private let bookmarkStore = BookmarkStore.shared
 
     init(repository: PaperRepository, preferencesStore: PreferencesStore) {
         self.paperRepository = repository
@@ -100,6 +104,10 @@ final class FeedViewModel: SummarizationQueueDelegate {
     // MARK: - Feed Actions
 
     func loadPapers(forceRefresh: Bool = false) async {
+        // Bump generation — any in-flight load with an older generation will be discarded
+        loadGeneration &+= 1
+        let myGeneration = loadGeneration
+
         // Saved tab doesn't need categories
         if currentTab != .saved && !hasCategories {
             papers = []
@@ -112,8 +120,8 @@ final class FeedViewModel: SummarizationQueueDelegate {
         // Handle Saved tab separately
         if currentTab == .saved {
             isLoading = papers.isEmpty
-            await loadSavedPapers()
-            isLoading = false
+            await loadSavedPapers(generation: myGeneration)
+            if myGeneration == loadGeneration { isLoading = false }
             return
         }
 
@@ -135,8 +143,6 @@ final class FeedViewModel: SummarizationQueueDelegate {
         do {
             let mode: FeedMode
             switch currentTab {
-            case .forYou:
-                mode = .trending
             case .trending:
                 mode = .trending
             case .latest:
@@ -151,6 +157,10 @@ final class FeedViewModel: SummarizationQueueDelegate {
                 forceRefresh: forceRefresh,
                 mode: mode
             )
+
+            // Guard: discard if tab switched while we were fetching
+            guard myGeneration == loadGeneration else { return }
+
             papers = fetchedPapers
             error = nil
 
@@ -159,12 +169,15 @@ final class FeedViewModel: SummarizationQueueDelegate {
                 await queueSummariesForVisiblePaper(at: 0)
             }
         } catch {
+            guard myGeneration == loadGeneration else { return }
+
             // If we already have papers, show a transient toast instead of blocking
             if hadPapers {
                 showToast("Couldn't refresh — showing cached papers")
             } else {
                 // No papers at all — try loading from local cache before showing error
                 let cached = await loadCachedPapersForCurrentTab()
+                guard myGeneration == loadGeneration else { return }
                 if !cached.isEmpty {
                     papers = cached
                     showToast("Offline — showing cached papers")
@@ -174,6 +187,7 @@ final class FeedViewModel: SummarizationQueueDelegate {
             }
         }
 
+        guard myGeneration == loadGeneration else { return }
         isLoading = false
         isRefreshingInBackground = false
     }
@@ -192,24 +206,15 @@ final class FeedViewModel: SummarizationQueueDelegate {
         }
     }
 
-    private func loadSavedPapers() async {
-        let savedIds = bookmarkStore.bookmarkedIds
+    private func loadSavedPapers(generation: UInt) async {
+        let savedPapers = paperRepository.fetchBookmarkedPapers()
 
-        if savedIds.isEmpty {
-            papers = []
-            return
+        guard generation == loadGeneration else { return }
+
+        // Sort by most recently bookmarked
+        papers = savedPapers.sorted {
+            ($0.bookmarkedAt ?? .distantPast) > ($1.bookmarkedAt ?? .distantPast)
         }
-
-        // Fetch saved papers from repository
-        var savedPapers: [Paper] = []
-        for id in savedIds {
-            if let paper = await paperRepository.getPaper(id: id) {
-                savedPapers.append(paper)
-            }
-        }
-
-        // Sort by most recently saved (we don't track save date, so just reverse)
-        papers = savedPapers
         error = nil
 
         if !papers.isEmpty {
@@ -219,6 +224,7 @@ final class FeedViewModel: SummarizationQueueDelegate {
 
     func loadMorePapers() async {
         guard canLoadMore, !isLoading else { return }
+        let myGeneration = loadGeneration
 
         isLoadingMore = true
         currentPage += 1
@@ -230,13 +236,15 @@ final class FeedViewModel: SummarizationQueueDelegate {
                 forceRefresh: false,
                 mode: currentTab == .latest ? .latest : .trending
             )
+            guard myGeneration == loadGeneration else { return }
             papers.append(contentsOf: morePapers)
         } catch {
+            guard myGeneration == loadGeneration else { return }
             currentPage -= 1
-            // Don't block — just show toast
             showToast("Couldn't load more papers")
         }
 
+        guard myGeneration == loadGeneration else { return }
         isLoadingMore = false
     }
 
@@ -247,22 +255,18 @@ final class FeedViewModel: SummarizationQueueDelegate {
     func switchTab(to tab: FeedTab) async {
         guard currentTab != tab else { return }
 
+        // Cancel any in-flight load for the previous tab
+        activeLoadTask?.cancel()
+        activeLoadTask = nil
+
         currentTab = tab
         currentPaperIndex = 0
         error = nil
 
         await summarizationQueue.clearAll()
 
-        // Try to load cached papers for this tab immediately (non-blocking)
-        let cached = await loadCachedPapersForCurrentTab()
-        if !cached.isEmpty {
-            papers = cached
-            // Then refresh in background
-            isRefreshingInBackground = true
-            await loadPapers(forceRefresh: true)
-        } else {
-            // No cache — full loading state
-            papers = []
+        // Start a fresh load — generation ensures stale results are discarded
+        activeLoadTask = Task {
             await loadPapers(forceRefresh: true)
         }
     }
@@ -480,6 +484,10 @@ final class FeedViewModel: SummarizationQueueDelegate {
 
     func openAbstract(for paper: Paper) -> URL? {
         paper.abstractURLObject
+    }
+
+    func toggleBookmark(for paper: Paper) {
+        paperRepository.toggleBookmark(for: paper)
     }
 
     func sharePaper(_ paper: Paper) -> [Any] {

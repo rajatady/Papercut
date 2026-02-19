@@ -11,20 +11,65 @@ struct FeedView: View {
     @Environment(PreferencesStore.self) private var preferencesStore
     @Environment(ThemeManager.self) private var theme
     @State private var showingSettings = false
+    @State private var showingSearch = false
     @State private var shareItems: [Any] = []
     @State private var showingShareSheet = false
     @State private var browserURL: URL?
-    @State private var selectedTabIndex: Int = 0
-
-    private let allTabs = FeedTab.allCases
+    @State private var selectedTab: FeedTab = .latest
 
     var body: some View {
-        ZStack(alignment: .top) {
-            // Background
+        TabView(selection: $selectedTab) {
+            Tab("Latest", systemImage: "clock.fill", value: .latest) {
+                feedContent
+            }
+
+            Tab("Trending", systemImage: "flame.fill", value: .trending) {
+                feedContent
+            }
+
+            Tab("Saved", systemImage: "bookmark.fill", value: .saved) {
+                feedContent
+            }
+        }
+        .tabBarMinimizeBehavior(.onScrollDown)
+        .sheet(isPresented: $showingSettings) {
+            SettingsView()
+        }
+        .sheet(isPresented: $showingSearch) {
+            SearchView()
+        }
+        .sheet(isPresented: $showingShareSheet) {
+            ShareSheet(items: shareItems)
+        }
+        .browserSheet(url: $browserURL)
+        .onChange(of: selectedTab) { _, newTab in
+            guard viewModel.currentTab != newTab else { return }
+            Task {
+                await viewModel.switchTab(to: newTab)
+            }
+        }
+        .onChange(of: viewModel.currentTab) { _, newTab in
+            if newTab != selectedTab {
+                selectedTab = newTab
+            }
+        }
+        .task {
+            if viewModel.papers.isEmpty {
+                await viewModel.loadPapers()
+            }
+        }
+    }
+
+    // MARK: - Feed Content (shared across tabs)
+
+    private var feedContent: some View {
+        ZStack {
             theme.colors.background.ignoresSafeArea()
 
-            if !viewModel.hasCategories {
+            if !viewModel.hasCategories && viewModel.currentTab != .saved {
                 noCategoriesView
+            } else if viewModel.currentTab == .saved && viewModel.displayPapers.isEmpty && !viewModel.isLoading {
+                savedEmptyView
             } else if viewModel.isLoading && viewModel.papers.isEmpty {
                 loadingView
             } else if let error = viewModel.error, viewModel.papers.isEmpty {
@@ -32,17 +77,60 @@ struct FeedView: View {
             } else if viewModel.displayPapers.isEmpty && !viewModel.isLoading {
                 emptyView
             } else {
-                // Horizontally swipeable tab content (full screen, behind header)
-                horizontalTabPager
+                verticalFeed
             }
 
-            // Floating glass header (content scrolls behind this)
-            FeedGlassHeader(
-                tabs: allTabs,
-                selectedIndex: $selectedTabIndex,
-                isRefreshing: viewModel.isRefreshingInBackground,
-                onSettings: { showingSettings = true }
+            // Top fade — smooths card edges behind status bar
+            LinearGradient(
+                stops: [
+                    .init(color: theme.colors.background, location: 0),
+                    .init(color: theme.colors.background.opacity(0.8), location: 0.5),
+                    .init(color: theme.colors.background.opacity(0), location: 1)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
             )
+            .frame(height: 50)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .ignoresSafeArea(edges: .top)
+            .allowsHitTesting(false)
+
+            // Floating header buttons (top-right)
+            VStack {
+                HStack(spacing: Spacing.md) {
+                    Spacer()
+
+                    if viewModel.isRefreshingInBackground {
+                        ProgressView()
+                            .controlSize(.mini)
+                            .tint(theme.colors.textMuted)
+                    }
+
+                    Button { showingSearch = true } label: {
+                        Image(systemName: "magnifyingglass")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundStyle(theme.colors.textSecondary)
+                            .frame(width: 44, height: 44)
+                            .contentShape(Circle())
+                            .glassEffect(.regular, in: .circle)
+                    }
+                    .buttonStyle(SoftPressButtonStyle())
+
+                    Button { showingSettings = true } label: {
+                        Image(systemName: "gearshape")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundStyle(theme.colors.textSecondary)
+                            .frame(width: 44, height: 44)
+                            .contentShape(Circle())
+                            .glassEffect(.regular, in: .circle)
+                    }
+                    .buttonStyle(SoftPressButtonStyle())
+                }
+                .padding(.horizontal, LayoutConstants.Screen.paddingHorizontal)
+                .padding(.top, Spacing.xs)
+
+                Spacer()
+            }
 
             // Toast overlay
             if let toast = viewModel.toastError {
@@ -57,48 +145,10 @@ struct FeedView: View {
                 .zIndex(10)
             }
         }
-        .sheet(isPresented: $showingSettings) {
-            SettingsView()
-        }
-        .sheet(isPresented: $showingShareSheet) {
-            ShareSheet(items: shareItems)
-        }
-        .browserSheet(url: $browserURL)
         .animation(.easeInOut(duration: 0.3), value: viewModel.toastError != nil)
-        .onChange(of: selectedTabIndex) { _, newIndex in
-            let tab = allTabs[newIndex]
-            guard viewModel.currentTab != tab else { return }
-            Task {
-                await viewModel.switchTab(to: tab)
-            }
-        }
-        .onChange(of: viewModel.currentTab) { _, newTab in
-            // Sync programmatic tab changes back to the pager
-            if let index = allTabs.firstIndex(of: newTab), index != selectedTabIndex {
-                selectedTabIndex = index
-            }
-        }
-        .task {
-            if viewModel.papers.isEmpty {
-                await viewModel.loadPapers()
-            }
-        }
     }
 
-    // MARK: - Horizontal Tab Pager
-
-    private var horizontalTabPager: some View {
-        TabView(selection: $selectedTabIndex) {
-            ForEach(Array(allTabs.enumerated()), id: \.offset) { index, _ in
-                verticalFeed
-                    .tag(index)
-            }
-        }
-        .tabViewStyle(.page(indexDisplayMode: .never))
-        .ignoresSafeArea(edges: .top)
-    }
-
-    // MARK: - Vertical Feed (per tab)
+    // MARK: - Vertical Feed
 
     private var verticalFeed: some View {
         ScrollView(.vertical, showsIndicators: false) {
@@ -149,6 +199,9 @@ struct FeedView: View {
             onShare: {
                 shareItems = viewModel.sharePaper(paper)
                 showingShareSheet = true
+            },
+            onToggleBookmark: {
+                viewModel.toggleBookmark(for: paper)
             }
         )
         .onAppear {
@@ -188,6 +241,7 @@ struct FeedView: View {
                     .background(theme.colors.textPrimary)
                     .clipShape(Capsule())
             }
+            .buttonStyle(PressButtonStyle())
 
             Spacer()
         }
@@ -236,9 +290,14 @@ struct FeedView: View {
                     .background(theme.colors.textPrimary)
                     .clipShape(Capsule())
             }
+            .buttonStyle(PressButtonStyle())
 
             Spacer()
         }
+    }
+
+    private var savedEmptyView: some View {
+        SavedEmptyStateView(theme: theme)
     }
 
     private var emptyView: some View {
@@ -273,6 +332,7 @@ struct FeedView: View {
                     .background(theme.colors.textPrimary)
                     .clipShape(Capsule())
             }
+            .buttonStyle(PressButtonStyle())
 
             Spacer()
         }
