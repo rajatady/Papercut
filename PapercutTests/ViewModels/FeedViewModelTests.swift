@@ -44,10 +44,30 @@ final class MockArXivService: ArXivServiceProtocol, @unchecked Sendable {
     }
 }
 
+// MARK: - Mock Side Effect Executor
+
+/// Executor that synchronously captures effects and returns pre-configured results
+final class MockSideEffectExecutor: SideEffectExecutor, @unchecked Sendable {
+    var executedEffects: [FeedSideEffect] = []
+    var resultToReturn: FeedEvent?
+    var resultForEffect: (FeedSideEffect) -> FeedEvent? = { _ in nil }
+
+    @MainActor func execute(
+        _ effect: FeedSideEffect,
+        for tab: FeedTab,
+        categories: [String]
+    ) async -> FeedEvent? {
+        executedEffects.append(effect)
+        return resultForEffect(effect) ?? resultToReturn
+    }
+}
+
 // MARK: - Test Helpers
 
 @MainActor
-private func makeTestDependencies() -> (FeedViewModel, MockArXivService, PreferencesStore) {
+private func makeTestDependencies(
+    mockExecutor: MockSideEffectExecutor? = nil
+) -> (FeedViewModel, MockArXivService, PreferencesStore, MockSideEffectExecutor) {
     let config = ModelConfiguration(isStoredInMemoryOnly: true)
     let container = try! ModelContainer(for: Paper.self, Summary.self, configurations: config)
     let modelContext = container.mainContext
@@ -64,8 +84,23 @@ private func makeTestDependencies() -> (FeedViewModel, MockArXivService, Prefere
         modelContext: modelContext
     )
 
-    let viewModel = FeedViewModel(repository: repository, preferencesStore: prefsStore)
-    return (viewModel, mockArXiv, prefsStore)
+    let executor = mockExecutor ?? MockSideEffectExecutor()
+    let viewModel = FeedViewModel(repository: repository, preferencesStore: prefsStore, executor: executor)
+    return (viewModel, mockArXiv, prefsStore, executor)
+}
+
+/// Helper: load papers into a ViewModel's current tab state directly
+@MainActor
+private func loadPapersIntoVM(_ vm: FeedViewModel, papers: [Paper]) {
+    vm.tabStates[vm.currentTab] = TabState(
+        papers: papers,
+        page: 0,
+        scrollPosition: nil,
+        loadState: .loaded,
+        hasMore: false,
+        lastFetchedAt: Date(),
+        showNewPapersPill: false
+    )
 }
 
 private func makeSamplePapers(count: Int) -> [Paper] {
@@ -91,7 +126,7 @@ struct FeedViewModelTests {
 
     @MainActor
     @Test func initialState_isEmpty() {
-        let (vm, _, _) = makeTestDependencies()
+        let (vm, _, _, _) = makeTestDependencies()
         #expect(vm.papers.isEmpty)
         #expect(vm.isLoading == false)
         #expect(vm.isLoadingMore == false)
@@ -107,13 +142,13 @@ struct FeedViewModelTests {
 
     @MainActor
     @Test func hasCategories_falseWhenEmpty() {
-        let (vm, _, _) = makeTestDependencies()
+        let (vm, _, _, _) = makeTestDependencies()
         #expect(vm.hasCategories == false)
     }
 
     @MainActor
     @Test func hasCategories_trueWhenCategoriesExist() {
-        let (vm, _, prefs) = makeTestDependencies()
+        let (vm, _, prefs, _) = makeTestDependencies()
         prefs.followCategory("cs.AI")
         #expect(vm.hasCategories == true)
     }
@@ -122,7 +157,7 @@ struct FeedViewModelTests {
 
     @MainActor
     @Test func loadPapers_noCategories_returnsEmpty() async {
-        let (vm, _, _) = makeTestDependencies()
+        let (vm, _, _, _) = makeTestDependencies()
         await vm.loadPapers()
 
         #expect(vm.papers.isEmpty)
@@ -131,12 +166,20 @@ struct FeedViewModelTests {
 
     @MainActor
     @Test func loadPapers_withCategories_fetchesPapers() async {
-        let (vm, mockArXiv, prefs) = makeTestDependencies()
+        let samplePapers = makeSamplePapers(count: 5)
+        let executor = MockSideEffectExecutor()
+        executor.resultForEffect = { effect in
+            if case .fetch = effect {
+                return .fetchSucceeded(papers: samplePapers, hasMore: false)
+            }
+            return nil
+        }
+        let (vm, _, prefs, _) = makeTestDependencies(mockExecutor: executor)
         prefs.followCategory("cs.AI")
-        mockArXiv.papers = makeSamplePapers(count: 5)
-        mockArXiv.totalResults = 5
 
         await vm.loadPapers()
+        // Allow the async Task to complete
+        try? await Task.sleep(for: .milliseconds(50))
 
         #expect(vm.papers.count == 5)
         #expect(vm.isLoading == false)
@@ -145,11 +188,18 @@ struct FeedViewModelTests {
 
     @MainActor
     @Test func loadPapers_apiError_noExistingPapers_setsError() async {
-        let (vm, mockArXiv, prefs) = makeTestDependencies()
+        let executor = MockSideEffectExecutor()
+        executor.resultForEffect = { effect in
+            if case .fetch = effect {
+                return .fetchFailed(error: "Network error")
+            }
+            return nil
+        }
+        let (vm, _, prefs, _) = makeTestDependencies(mockExecutor: executor)
         prefs.followCategory("cs.AI")
-        mockArXiv.shouldFail = true
 
         await vm.loadPapers()
+        try? await Task.sleep(for: .milliseconds(50))
 
         #expect(vm.papers.isEmpty)
         #expect(vm.error != nil)
@@ -157,18 +207,30 @@ struct FeedViewModelTests {
 
     @MainActor
     @Test func loadPapers_apiError_withExistingPapers_showsToast() async {
-        let (vm, mockArXiv, prefs) = makeTestDependencies()
+        let samplePapers = makeSamplePapers(count: 3)
+        var shouldFail = false
+        let executor = MockSideEffectExecutor()
+        executor.resultForEffect = { effect in
+            if case .fetch = effect {
+                if shouldFail {
+                    return .fetchFailed(error: "Network error")
+                }
+                return .fetchSucceeded(papers: samplePapers, hasMore: false)
+            }
+            return nil
+        }
+        let (vm, _, prefs, _) = makeTestDependencies(mockExecutor: executor)
         prefs.followCategory("cs.AI")
-        mockArXiv.papers = makeSamplePapers(count: 3)
-        mockArXiv.totalResults = 3
 
         // First load succeeds
         await vm.loadPapers()
+        try? await Task.sleep(for: .milliseconds(50))
         #expect(vm.papers.count == 3)
 
-        // Second load fails
-        mockArXiv.shouldFail = true
-        await vm.loadPapers()
+        // Second load fails (refresh)
+        shouldFail = true
+        await vm.loadPapers(forceRefresh: true)
+        try? await Task.sleep(for: .milliseconds(50))
 
         // Should still have papers, show toast instead of error
         #expect(vm.papers.count == 3)
@@ -180,7 +242,7 @@ struct FeedViewModelTests {
 
     @MainActor
     @Test func displayPapers_returnsSearchResultsWhenSearching() {
-        let (vm, _, _) = makeTestDependencies()
+        let (vm, _, _, _) = makeTestDependencies()
         vm.isSearching = true
         vm.searchQuery = "test"
         // searchResults is empty by default
@@ -188,13 +250,10 @@ struct FeedViewModelTests {
     }
 
     @MainActor
-    @Test func displayPapers_returnsPapersWhenNotSearching() async {
-        let (vm, mockArXiv, prefs) = makeTestDependencies()
-        prefs.followCategory("cs.AI")
-        mockArXiv.papers = makeSamplePapers(count: 2)
-        mockArXiv.totalResults = 2
-
-        await vm.loadPapers()
+    @Test func displayPapers_returnsPapersWhenNotSearching() {
+        let (vm, _, _, _) = makeTestDependencies()
+        let papers = makeSamplePapers(count: 2)
+        loadPapersIntoVM(vm, papers: papers)
 
         #expect(vm.displayPapers.count == 2)
     }
@@ -203,31 +262,25 @@ struct FeedViewModelTests {
 
     @MainActor
     @Test func currentPaper_nilWhenEmpty() {
-        let (vm, _, _) = makeTestDependencies()
+        let (vm, _, _, _) = makeTestDependencies()
         #expect(vm.currentPaper == nil)
     }
 
     @MainActor
-    @Test func currentPaper_returnsCorrectPaper() async {
-        let (vm, mockArXiv, prefs) = makeTestDependencies()
-        prefs.followCategory("cs.AI")
-        mockArXiv.papers = makeSamplePapers(count: 3)
-        mockArXiv.totalResults = 3
-
-        await vm.loadPapers()
+    @Test func currentPaper_returnsCorrectPaper() {
+        let (vm, _, _, _) = makeTestDependencies()
+        let papers = makeSamplePapers(count: 3)
+        loadPapersIntoVM(vm, papers: papers)
         vm.currentPaperIndex = 1
 
         #expect(vm.currentPaper?.id == "paper_1")
     }
 
     @MainActor
-    @Test func currentPaper_nilForOutOfBoundsIndex() async {
-        let (vm, mockArXiv, prefs) = makeTestDependencies()
-        prefs.followCategory("cs.AI")
-        mockArXiv.papers = makeSamplePapers(count: 2)
-        mockArXiv.totalResults = 2
-
-        await vm.loadPapers()
+    @Test func currentPaper_nilForOutOfBoundsIndex() {
+        let (vm, _, _, _) = makeTestDependencies()
+        let papers = makeSamplePapers(count: 2)
+        loadPapersIntoVM(vm, papers: papers)
         vm.currentPaperIndex = 999
 
         #expect(vm.currentPaper == nil)
@@ -237,10 +290,7 @@ struct FeedViewModelTests {
 
     @MainActor
     @Test func switchTab_updatesCurrentTab() async {
-        let (vm, mockArXiv, prefs) = makeTestDependencies()
-        prefs.followCategory("cs.AI")
-        mockArXiv.papers = makeSamplePapers(count: 2)
-        mockArXiv.totalResults = 2
+        let (vm, _, _, _) = makeTestDependencies()
 
         await vm.switchTab(to: .trending)
         #expect(vm.currentTab == .trending)
@@ -249,20 +299,19 @@ struct FeedViewModelTests {
 
     @MainActor
     @Test func switchTab_sameTab_noOp() async {
-        let (vm, mockArXiv, _) = makeTestDependencies()
-        let initialCallCount = mockArXiv.fetchCallCount
+        let (vm, _, _, executor) = makeTestDependencies()
 
         await vm.switchTab(to: .latest) // Same as default
 
-        #expect(mockArXiv.fetchCallCount == initialCallCount)
+        // No effects should have been executed
+        #expect(executor.executedEffects.isEmpty)
     }
 
     // MARK: - Toast
 
     @MainActor
     @Test func dismissToast_clearsMessage() {
-        let (vm, _, _) = makeTestDependencies()
-        // Manually set toast for testing
+        let (vm, _, _, _) = makeTestDependencies()
         vm.dismissToast()
         #expect(vm.toastError == nil)
     }
@@ -271,7 +320,7 @@ struct FeedViewModelTests {
 
     @MainActor
     @Test func clearSearch_resetsSearchState() {
-        let (vm, _, _) = makeTestDependencies()
+        let (vm, _, _, _) = makeTestDependencies()
         vm.searchQuery = "test"
         vm.isSearching = true
 
@@ -285,14 +334,14 @@ struct FeedViewModelTests {
 
     @MainActor
     @Test func selectedStyle_defaultsToTldr() {
-        let (vm, _, _) = makeTestDependencies()
+        let (vm, _, _, _) = makeTestDependencies()
         let paper = makeSamplePapers(count: 1)[0]
         #expect(vm.selectedStyle(for: paper) == .tldr)
     }
 
     @MainActor
     @Test func setSelectedStyle_updatesStyle() {
-        let (vm, _, _) = makeTestDependencies()
+        let (vm, _, _, _) = makeTestDependencies()
         let paper = makeSamplePapers(count: 1)[0]
 
         vm.setSelectedStyle(.keyFindings, for: paper)
@@ -303,14 +352,14 @@ struct FeedViewModelTests {
 
     @MainActor
     @Test func isSummarizing_falseByDefault() {
-        let (vm, _, _) = makeTestDependencies()
+        let (vm, _, _, _) = makeTestDependencies()
         let paper = makeSamplePapers(count: 1)[0]
         #expect(vm.isSummarizing(paper) == false)
     }
 
     @MainActor
     @Test func currentStreamingContent_nilByDefault() {
-        let (vm, _, _) = makeTestDependencies()
+        let (vm, _, _, _) = makeTestDependencies()
         let paper = makeSamplePapers(count: 1)[0]
         #expect(vm.currentStreamingContent(for: paper) == nil)
     }
@@ -319,7 +368,7 @@ struct FeedViewModelTests {
 
     @MainActor
     @Test func sharePaper_returnsItems() {
-        let (vm, _, _) = makeTestDependencies()
+        let (vm, _, _, _) = makeTestDependencies()
         let paper = makeSamplePapers(count: 1)[0]
 
         let items = vm.sharePaper(paper)
@@ -331,7 +380,7 @@ struct FeedViewModelTests {
 
     @MainActor
     @Test func openPDF_returnsURL() {
-        let (vm, _, _) = makeTestDependencies()
+        let (vm, _, _, _) = makeTestDependencies()
         let paper = makeSamplePapers(count: 1)[0]
 
         let url = vm.openPDF(for: paper)
@@ -340,7 +389,7 @@ struct FeedViewModelTests {
 
     @MainActor
     @Test func openAbstract_returnsURL() {
-        let (vm, _, _) = makeTestDependencies()
+        let (vm, _, _, _) = makeTestDependencies()
         let paper = makeSamplePapers(count: 1)[0]
 
         let url = vm.openAbstract(for: paper)
@@ -351,7 +400,7 @@ struct FeedViewModelTests {
 
     @MainActor
     @Test func getCachedOrStoredSummary_nilWhenNoneExist() {
-        let (vm, _, _) = makeTestDependencies()
+        let (vm, _, _, _) = makeTestDependencies()
         let paper = makeSamplePapers(count: 1)[0]
 
         let summary = vm.getCachedOrStoredSummary(for: paper, style: .tldr)
@@ -360,7 +409,7 @@ struct FeedViewModelTests {
 
     @MainActor
     @Test func getCachedOrStoredSummary_returnsStreamingContent() {
-        let (vm, _, _) = makeTestDependencies()
+        let (vm, _, _, _) = makeTestDependencies()
         let paper = makeSamplePapers(count: 1)[0]
         let requestId = SummarizationRequest.makeId(paperId: paper.id, style: .tldr)
 
@@ -372,7 +421,7 @@ struct FeedViewModelTests {
 
     @MainActor
     @Test func getCachedOrStoredSummary_returnsCompletedSummary() {
-        let (vm, _, _) = makeTestDependencies()
+        let (vm, _, _, _) = makeTestDependencies()
         let paper = makeSamplePapers(count: 1)[0]
         let requestId = SummarizationRequest.makeId(paperId: paper.id, style: .tldr)
 
@@ -384,7 +433,7 @@ struct FeedViewModelTests {
 
     @MainActor
     @Test func getCachedOrStoredSummary_streamingTakesPriorityOverCompleted() {
-        let (vm, _, _) = makeTestDependencies()
+        let (vm, _, _, _) = makeTestDependencies()
         let paper = makeSamplePapers(count: 1)[0]
         let requestId = SummarizationRequest.makeId(paperId: paper.id, style: .tldr)
 
@@ -399,7 +448,7 @@ struct FeedViewModelTests {
 
     @MainActor
     @Test func enabledStyles_matchesPreferencesStore() {
-        let (vm, _, prefs) = makeTestDependencies()
+        let (vm, _, prefs, _) = makeTestDependencies()
         #expect(vm.enabledStyles == prefs.enabledSummaryStyles)
     }
 

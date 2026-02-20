@@ -54,9 +54,7 @@ struct FeedView: View {
             }
         }
         .onChange(of: preferencesStore.followedCategories) {
-            Task {
-                await viewModel.refresh()
-            }
+            viewModel.onCategoriesChanged()
         }
         .task {
             if viewModel.papers.isEmpty {
