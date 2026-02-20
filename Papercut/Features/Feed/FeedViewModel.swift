@@ -24,22 +24,24 @@ enum FeedTab: String, CaseIterable {
 @Observable
 @MainActor
 final class FeedViewModel: SummarizationQueueDelegate {
-    // MARK: - State
-    private(set) var papers: [Paper] = []
-    private(set) var isLoading = false
-    private(set) var isLoadingMore = false
-    private(set) var error: Error?
-    private(set) var currentPage = 0
-
-    /// Transient error shown as a toast, auto-dismissed
-    private(set) var toastError: String?
-
-    /// Whether a background refresh is in progress (non-blocking)
-    private(set) var isRefreshingInBackground = false
+    // MARK: - Per-Tab State (the state machine)
+    var tabStates: [FeedTab: TabState] = [
+        .latest: .initial,
+        .trending: .initial,
+        .saved: .initial,
+    ]
 
     // Current feed state
     var currentTab: FeedTab = .latest
     var currentPaperIndex: Int = 0
+
+    /// Transient error shown as a toast, auto-dismissed
+    private(set) var toastError: String?
+
+    /// "New papers available" pill visible
+    var showNewPapersPill: Bool {
+        tabStates[currentTab]?.showNewPapersPill ?? false
+    }
 
     // Search state
     var searchQuery = ""
@@ -52,22 +54,20 @@ final class FeedViewModel: SummarizationQueueDelegate {
     var selectedStyles: [String: SummaryStyle] = [:]
     var completedSummaries: [String: String] = [:] // requestId -> content
 
-    /// Monotonically increasing counter — any load whose captured generation
-    /// doesn't match the current value is stale and must be discarded.
-    private var loadGeneration: UInt = 0
-
-    /// The currently running load task so it can be cancelled on tab switch.
-    private var activeLoadTask: Task<Void, Never>?
+    /// Active async tasks per tab for cancellation
+    private var activeTasks: [FeedTab: Task<Void, Never>] = [:]
 
     // MARK: - Dependencies
     let paperRepository: PaperRepository
     private let preferencesStore: PreferencesStore
     private let cloudStore = CloudSummaryStore.shared
     private let summarizationQueue = SummarizationQueue.shared
+    private let executor: SideEffectExecutor
 
     init(repository: PaperRepository, preferencesStore: PreferencesStore) {
         self.paperRepository = repository
         self.preferencesStore = preferencesStore
+        self.executor = RealSideEffectExecutor(paperRepository: repository)
 
         // Configure the queue
         Task {
@@ -78,7 +78,42 @@ final class FeedViewModel: SummarizationQueueDelegate {
         }
     }
 
-    // MARK: - Computed Properties
+    // For testing — inject a custom executor
+    init(repository: PaperRepository, preferencesStore: PreferencesStore, executor: SideEffectExecutor) {
+        self.paperRepository = repository
+        self.preferencesStore = preferencesStore
+        self.executor = executor
+
+        Task {
+            await summarizationQueue.configure(
+                service: SummarizationServiceFactory.create(),
+                delegate: self
+            )
+        }
+    }
+
+    // MARK: - Computed Properties (read from active tab's state)
+
+    var papers: [Paper] {
+        tabStates[currentTab]?.papers ?? []
+    }
+
+    var isLoading: Bool {
+        tabStates[currentTab]?.loadState == .loading
+    }
+
+    var isLoadingMore: Bool {
+        tabStates[currentTab]?.loadState == .loadingMore
+    }
+
+    var isRefreshingInBackground: Bool {
+        tabStates[currentTab]?.loadState == .refreshing
+    }
+
+    var error: Error? {
+        guard case .error(let msg) = tabStates[currentTab]?.loadState else { return nil }
+        return NSError(domain: "FeedViewModel", code: -1, userInfo: [NSLocalizedDescriptionKey: msg])
+    }
 
     var hasCategories: Bool {
         !preferencesStore.followedCategories.isEmpty
@@ -89,186 +124,178 @@ final class FeedViewModel: SummarizationQueueDelegate {
     }
 
     var canLoadMore: Bool {
-        currentTab != .saved && paperRepository.canLoadMore && !isLoadingMore
+        guard let state = tabStates[currentTab] else { return false }
+        return currentTab != .saved && state.hasMore && state.loadState == .loaded
     }
 
     var currentPaper: Paper? {
-        guard currentPaperIndex >= 0 && currentPaperIndex < papers.count else { return nil }
-        return papers[currentPaperIndex]
+        let p = papers
+        guard currentPaperIndex >= 0 && currentPaperIndex < p.count else { return nil }
+        return p[currentPaperIndex]
     }
 
     var displayPapers: [Paper] {
         isSearching && !searchQuery.isEmpty ? searchResults : papers
     }
 
-    // MARK: - Feed Actions
+    // MARK: - Event Dispatch (core of the state machine integration)
 
-    func loadPapers(forceRefresh: Bool = false) async {
-        // Bump generation — any in-flight load with an older generation will be discarded
-        loadGeneration &+= 1
-        let myGeneration = loadGeneration
+    /// Fire-and-forget: send an event, execute side effects asynchronously.
+    func send(_ event: FeedEvent, for tab: FeedTab? = nil) {
+        let targetTab = tab ?? currentTab
+        guard tabStates[targetTab] != nil else { return }
 
-        // Saved tab doesn't need categories
-        if currentTab != .saved && !hasCategories {
-            papers = []
-            return
+        let (newState, effects) = TabStateMachine.transition(
+            state: tabStates[targetTab]!,
+            event: event,
+            tab: targetTab
+        )
+
+        tabStates[targetTab] = newState
+
+        for effect in effects {
+            handleSideEffect(effect, for: targetTab)
         }
+    }
 
-        let hadPapers = !papers.isEmpty
-        error = nil
+    /// Send an event and wait for the async effect chain (fetch→result) to complete.
+    /// Used by public API methods that callers `await`.
+    func sendAndWait(_ event: FeedEvent, for tab: FeedTab? = nil) async {
+        let targetTab = tab ?? currentTab
+        guard tabStates[targetTab] != nil else { return }
 
-        // Handle Saved tab separately
-        if currentTab == .saved {
-            isLoading = papers.isEmpty
-            await loadSavedPapers(generation: myGeneration)
-            if myGeneration == loadGeneration { isLoading = false }
-            return
+        let (newState, effects) = TabStateMachine.transition(
+            state: tabStates[targetTab]!,
+            event: event,
+            tab: targetTab
+        )
+
+        tabStates[targetTab] = newState
+
+        // Execute effects — async ones (fetch, querySwiftData) are awaited inline
+        for effect in effects {
+            switch effect {
+            case .fetch, .fetchTrending, .querySwiftData:
+                // Execute inline and feed result back synchronously
+                let categories = preferencesStore.followedCategories
+                if let resultEvent = await executor.execute(effect, for: targetTab, categories: categories) {
+                    send(resultEvent, for: targetTab)
+                }
+
+            default:
+                handleSideEffect(effect, for: targetTab)
+            }
         }
+    }
 
-        // If we have no papers at all, show the loading spinner
-        // If we already have papers, refresh silently in the background
-        if !hadPapers {
-            isLoading = true
-        } else {
-            isRefreshingInBackground = true
-        }
+    private func handleSideEffect(_ effect: FeedSideEffect, for tab: FeedTab) {
+        switch effect {
+        case .showToast(let message):
+            showToast(message)
 
-        currentPage = 0
+        case .cancelFetch:
+            activeTasks[tab]?.cancel()
+            activeTasks[tab] = nil
 
-        if forceRefresh {
-            paperRepository.resetPagination()
-            await summarizationQueue.clearLowPriority()
-        }
-
-        do {
-            let mode: FeedMode
-            switch currentTab {
-            case .trending:
-                mode = .trending
-            case .latest:
-                mode = .latest
-            case .saved:
-                mode = .latest // Won't reach here
+        case .cancelSummaries:
+            Task {
+                await summarizationQueue.clearAll()
             }
 
-            let fetchedPapers = try await paperRepository.fetchPapers(
-                categories: preferencesStore.followedCategories,
-                page: 0,
-                forceRefresh: forceRefresh,
-                mode: mode
-            )
-
-            // Guard: discard if tab switched while we were fetching
-            guard myGeneration == loadGeneration else { return }
-
-            papers = fetchedPapers
-            error = nil
-
-            // Queue summaries for visible papers
-            if !papers.isEmpty {
-                await queueSummariesForVisiblePaper(at: 0)
+        case .queueSummaries:
+            if let state = tabStates[tab], !state.papers.isEmpty {
+                Task {
+                    await queueSummariesForVisiblePaper(at: 0)
+                }
             }
-        } catch {
-            guard myGeneration == loadGeneration else { return }
 
-            // If we already have papers, show a transient toast instead of blocking
-            if hadPapers {
-                showToast("Couldn't refresh — showing cached papers")
-            } else {
-                // No papers at all — try loading from local cache before showing error
-                let cached = await loadCachedPapersForCurrentTab()
-                guard myGeneration == loadGeneration else { return }
-                if !cached.isEmpty {
-                    papers = cached
-                    showToast("Offline — showing cached papers")
-                } else {
-                    self.error = error
+        case .restoreScrollPosition, .saveScrollPosition, .scrollToTop, .none:
+            break
+
+        case .fetch, .fetchTrending, .querySwiftData:
+            activeTasks[tab]?.cancel()
+            activeTasks[tab] = Task { [weak self] in
+                guard let self else { return }
+                let categories = self.preferencesStore.followedCategories
+                if let resultEvent = await self.executor.execute(effect, for: tab, categories: categories) {
+                    if !Task.isCancelled {
+                        self.send(resultEvent, for: tab)
+                    }
                 }
             }
         }
-
-        guard myGeneration == loadGeneration else { return }
-        isLoading = false
-        isRefreshingInBackground = false
     }
 
-    /// Load papers from SwiftData cache without hitting the network
-    private func loadCachedPapersForCurrentTab() async -> [Paper] {
-        do {
-            return try await paperRepository.fetchPapers(
-                categories: preferencesStore.followedCategories,
-                page: 0,
-                forceRefresh: false,
-                mode: currentTab == .latest ? .latest : .trending
-            )
-        } catch {
-            return []
+    // MARK: - Public API (preserved for FeedView compatibility)
+
+    func loadPapers(forceRefresh: Bool = false) async {
+        if currentTab != .saved && !hasCategories {
+            tabStates[currentTab] = .initial
+            return
         }
-    }
-
-    private func loadSavedPapers(generation: UInt) async {
-        let savedPapers = paperRepository.fetchBookmarkedPapers()
-
-        guard generation == loadGeneration else { return }
-
-        // Sort by most recently bookmarked
-        papers = savedPapers.sorted {
-            ($0.bookmarkedAt ?? .distantPast) > ($1.bookmarkedAt ?? .distantPast)
-        }
-        error = nil
-
-        if !papers.isEmpty {
-            await queueSummariesForVisiblePaper(at: 0)
+        if forceRefresh {
+            await sendAndWait(.pullToRefresh)
+        } else {
+            await sendAndWait(.tabBecameActive)
         }
     }
 
     func loadMorePapers() async {
-        guard canLoadMore, !isLoading else { return }
-        let myGeneration = loadGeneration
-
-        isLoadingMore = true
-        currentPage += 1
-
-        do {
-            let morePapers = try await paperRepository.fetchPapers(
-                categories: preferencesStore.followedCategories,
-                page: currentPage,
-                forceRefresh: false,
-                mode: currentTab == .latest ? .latest : .trending
-            )
-            guard myGeneration == loadGeneration else { return }
-            papers.append(contentsOf: morePapers)
-        } catch {
-            guard myGeneration == loadGeneration else { return }
-            currentPage -= 1
-            showToast("Couldn't load more papers")
-        }
-
-        guard myGeneration == loadGeneration else { return }
-        isLoadingMore = false
+        await sendAndWait(.loadMoreTriggered)
     }
 
     func refresh() async {
-        await loadPapers(forceRefresh: true)
+        await sendAndWait(.pullToRefresh)
     }
 
     func switchTab(to tab: FeedTab) async {
         guard currentTab != tab else { return }
 
-        // Cancel any in-flight load for the previous tab
-        activeLoadTask?.cancel()
-        activeLoadTask = nil
+        // Save scroll position and deactivate old tab
+        send(.tabBecameInactive(saveScrollPosition: nil), for: currentTab)
 
         currentTab = tab
         currentPaperIndex = 0
-        error = nil
 
-        await summarizationQueue.clearAll()
+        // Activate new tab
+        await sendAndWait(.tabBecameActive, for: tab)
+    }
 
-        // Start a fresh load — generation ensures stale results are discarded
-        activeLoadTask = Task {
-            await loadPapers(forceRefresh: true)
+    func onCategoriesChanged() {
+        for tab in FeedTab.allCases {
+            send(.categoriesChanged, for: tab)
         }
+    }
+
+    func onAppForegrounded() {
+        send(.appForegrounded)
+    }
+
+    func onPaperAppear(_ paper: Paper, at index: Int) {
+        Task {
+            await queueSummariesForVisiblePaper(at: index)
+        }
+
+        // Load more when near the end
+        let p = papers
+        if p.count > 0 && index >= max(0, p.count - 3) {
+            send(.loadMoreTriggered)
+        }
+    }
+
+    func toggleBookmark(for paper: Paper) {
+        paperRepository.toggleBookmark(for: paper)
+
+        // Notify saved tab about bookmark change
+        if paper.isBookmarked {
+            send(.paperBookmarked(paperId: paper.id), for: .saved)
+        } else {
+            send(.paperUnbookmarked(paperId: paper.id), for: .saved)
+        }
+    }
+
+    func dismissNewPapersPill() {
+        send(.newPapersPillTapped)
     }
 
     // MARK: - Toast
@@ -299,16 +326,11 @@ final class FeedViewModel: SummarizationQueueDelegate {
             return
         }
 
-        isLoading = true
-
         do {
             searchResults = try await paperRepository.searchPapers(query: searchQuery, page: 0)
         } catch {
-            self.error = error
             searchResults = []
         }
-
-        isLoading = false
     }
 
     func clearSearch() {
@@ -322,22 +344,18 @@ final class FeedViewModel: SummarizationQueueDelegate {
     func getCachedOrStoredSummary(for paper: Paper, style: SummaryStyle) -> String? {
         let requestId = SummarizationRequest.makeId(paperId: paper.id, style: style)
 
-        // Check streaming content first (in-progress)
         if let streaming = streamingContent[requestId], !streaming.isEmpty {
             return streaming
         }
 
-        // Check completed summaries (from queue)
         if let completed = completedSummaries[requestId] {
             return completed
         }
 
-        // Check paper model
         if let summary = paper.summary(for: style), summary.isComplete {
             return summary.content
         }
 
-        // Check local storage
         return cloudStore.getSummary(paperId: paper.id, style: style)
     }
 
@@ -350,12 +368,10 @@ final class FeedViewModel: SummarizationQueueDelegate {
     func setSelectedStyle(_ style: SummaryStyle, for paper: Paper) {
         selectedStyles[paper.id] = style
 
-        // Check if already have this summary
         if getCachedOrStoredSummary(for: paper, style: style) != nil {
             return
         }
 
-        // Queue with critical priority (user is actively viewing)
         enqueueSummary(for: paper, style: style, priority: .critical)
     }
 
@@ -374,12 +390,10 @@ final class FeedViewModel: SummarizationQueueDelegate {
     private func enqueueSummary(for paper: Paper, style: SummaryStyle, priority: SummarizationPriority) {
         let requestId = SummarizationRequest.makeId(paperId: paper.id, style: style)
 
-        // Skip if already have it
         if getCachedOrStoredSummary(for: paper, style: style) != nil {
             return
         }
 
-        // Mark as summarizing
         summarizingPapers.insert(requestId)
 
         Task {
@@ -395,48 +409,31 @@ final class FeedViewModel: SummarizationQueueDelegate {
 
     // MARK: - Smart Queue Management
 
-    func onPaperAppear(_ paper: Paper, at index: Int) {
-        Task {
-            await queueSummariesForVisiblePaper(at: index)
-        }
-
-        // Load more when near the end
-        if papers.count > 0 && index >= max(0, papers.count - 3) {
-            Task {
-                await loadMorePapers()
-            }
-        }
-    }
-
     private func queueSummariesForVisiblePaper(at index: Int) async {
-        guard index >= 0 && index < papers.count else { return }
+        let p = papers
+        guard index >= 0 && index < p.count else { return }
 
-        let visiblePaper = papers[index]
+        let visiblePaper = p[index]
         let activeStyle = selectedStyle(for: visiblePaper)
 
-        // 1. CRITICAL: Current paper's active style
         enqueueSummary(for: visiblePaper, style: activeStyle, priority: .critical)
 
-        // 2. HIGH: Current paper's other quick-access styles (user might tap)
         for style in SummaryStyle.quickAccessStyles where style != activeStyle {
             enqueueSummary(for: visiblePaper, style: style, priority: .high)
         }
 
-        // 3. MEDIUM: Next paper's default style
-        if index + 1 < papers.count {
-            let nextPaper = papers[index + 1]
+        if index + 1 < p.count {
+            let nextPaper = p[index + 1]
             enqueueSummary(for: nextPaper, style: .tldr, priority: .medium)
         }
 
-        // 4. LOW: Paper after next (pre-computation)
-        if index + 2 < papers.count {
-            let futurePaper = papers[index + 2]
+        if index + 2 < p.count {
+            let futurePaper = p[index + 2]
             enqueueSummary(for: futurePaper, style: .tldr, priority: .low)
         }
 
-        // Demote previous papers to low priority
         if index > 0 {
-            let previousPaper = papers[index - 1]
+            let previousPaper = p[index - 1]
             await summarizationQueue.demotePaper(paperId: previousPaper.id, to: .low)
         }
     }
@@ -452,7 +449,6 @@ final class FeedViewModel: SummarizationQueueDelegate {
             case .success(let content):
                 completedSummaries[requestId] = content
 
-                // Save to local storage — parse requestId by finding the last "_"
                 if let lastUnderscore = requestId.lastIndex(of: "_") {
                     let paperId = String(requestId[requestId.startIndex..<lastUnderscore])
                     let styleRaw = String(requestId[requestId.index(after: lastUnderscore)...])
@@ -484,10 +480,6 @@ final class FeedViewModel: SummarizationQueueDelegate {
 
     func openAbstract(for paper: Paper) -> URL? {
         paper.abstractURLObject
-    }
-
-    func toggleBookmark(for paper: Paper) {
-        paperRepository.toggleBookmark(for: paper)
     }
 
     func sharePaper(_ paper: Paper) -> [Any] {
