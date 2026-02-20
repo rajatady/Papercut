@@ -13,15 +13,21 @@ struct UserPreferences: Codable {
     var feedSortOrder: FeedSortOrder
     var paperRetentionDays: Int
     var hasCompletedOnboarding: Bool
+    var lastActiveTab: String
+    var scrollPositionLatest: String?
+    var scrollPositionTrending: String?
 
     init(
         followedCategories: [String] = [],
         enabledSummaryStyles: [String] = SummaryStyle.allCases.map { $0.rawValue },
         defaultSummaryStyle: String = SummaryStyle.tldr.rawValue,
-        autoSummarize: Bool = true, // Default to true for auto-summarization
+        autoSummarize: Bool = true,
         feedSortOrder: FeedSortOrder = .newest,
         paperRetentionDays: Int = 30,
-        hasCompletedOnboarding: Bool = false
+        hasCompletedOnboarding: Bool = false,
+        lastActiveTab: String = "Latest",
+        scrollPositionLatest: String? = nil,
+        scrollPositionTrending: String? = nil
     ) {
         self.followedCategories = followedCategories
         self.enabledSummaryStyles = enabledSummaryStyles
@@ -30,6 +36,23 @@ struct UserPreferences: Codable {
         self.feedSortOrder = feedSortOrder
         self.paperRetentionDays = paperRetentionDays
         self.hasCompletedOnboarding = hasCompletedOnboarding
+        self.lastActiveTab = lastActiveTab
+        self.scrollPositionLatest = scrollPositionLatest
+        self.scrollPositionTrending = scrollPositionTrending
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        followedCategories = try container.decodeIfPresent([String].self, forKey: .followedCategories) ?? []
+        enabledSummaryStyles = try container.decodeIfPresent([String].self, forKey: .enabledSummaryStyles) ?? SummaryStyle.allCases.map { $0.rawValue }
+        defaultSummaryStyle = try container.decodeIfPresent(String.self, forKey: .defaultSummaryStyle) ?? SummaryStyle.tldr.rawValue
+        autoSummarize = try container.decodeIfPresent(Bool.self, forKey: .autoSummarize) ?? true
+        feedSortOrder = try container.decodeIfPresent(FeedSortOrder.self, forKey: .feedSortOrder) ?? .newest
+        paperRetentionDays = try container.decodeIfPresent(Int.self, forKey: .paperRetentionDays) ?? 30
+        hasCompletedOnboarding = try container.decodeIfPresent(Bool.self, forKey: .hasCompletedOnboarding) ?? false
+        lastActiveTab = try container.decodeIfPresent(String.self, forKey: .lastActiveTab) ?? "Latest"
+        scrollPositionLatest = try container.decodeIfPresent(String.self, forKey: .scrollPositionLatest)
+        scrollPositionTrending = try container.decodeIfPresent(String.self, forKey: .scrollPositionTrending)
     }
 
     // MARK: - Computed Properties

@@ -228,7 +228,16 @@ final class FeedViewModel: SummarizationQueueDelegate {
                 }
             }
 
-        case .restoreScrollPosition, .saveScrollPosition, .scrollToTop, .none:
+        case .saveScrollPosition(let pos):
+            preferencesStore.saveScrollPosition(pos, for: tab)
+
+        case .restoreScrollPosition:
+            let saved = preferencesStore.savedScrollPosition(for: tab)
+            if let saved {
+                tabStates[tab]?.scrollPosition = saved
+            }
+
+        case .scrollToTop, .none:
             break
 
         case .fetch, .fetchTrending, .querySwiftData:
@@ -267,14 +276,13 @@ final class FeedViewModel: SummarizationQueueDelegate {
         await sendAndWait(.pullToRefresh)
     }
 
-    func switchTab(to tab: FeedTab) async {
+    func switchTab(to tab: FeedTab, fromScrollPosition: String? = nil) async {
         guard currentTab != tab else { return }
 
         // Save scroll position and deactivate old tab
-        send(.tabBecameInactive(saveScrollPosition: nil), for: currentTab)
+        send(.tabBecameInactive(saveScrollPosition: fromScrollPosition), for: currentTab)
 
         currentTab = tab
-        currentPaperIndex = 0
 
         // Activate new tab
         await sendAndWait(.tabBecameActive, for: tab)
@@ -331,7 +339,25 @@ final class FeedViewModel: SummarizationQueueDelegate {
     }
 
     func dismissNewPapersPill() {
+        send(.newPapersPillDismissed)
+    }
+
+    func scrollToNewPapers() {
         send(.newPapersPillTapped)
+    }
+
+    var hasResumePosition: Bool {
+        tabStates[currentTab]?.resumeScrollPosition != nil
+    }
+
+    func resumeReading() -> String? {
+        let pos = tabStates[currentTab]?.resumeScrollPosition
+        send(.resumeReadingTapped)
+        return pos
+    }
+
+    func onScrollPositionChanged(_ id: String?) {
+        send(.scrollPositionChanged(id))
     }
 
     // MARK: - Topic Feed

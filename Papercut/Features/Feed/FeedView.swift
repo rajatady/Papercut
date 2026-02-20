@@ -17,6 +17,7 @@ struct FeedView: View {
     @State private var showingShareSheet = false
     @State private var browserURL: URL?
     @State private var selectedTab: FeedTab = .latest
+    @State private var feedScrollId: String?
     @State private var topicToOpen: Topic?
     @Namespace private var topicTransition
 
@@ -66,8 +67,11 @@ struct FeedView: View {
         .browserSheet(url: $browserURL)
         .onChange(of: selectedTab) { _, newTab in
             guard viewModel.currentTab != newTab else { return }
+            let savedPosition = feedScrollId
+            preferencesStore.lastActiveTab = newTab
             Task {
-                await viewModel.switchTab(to: newTab)
+                await viewModel.switchTab(to: newTab, fromScrollPosition: savedPosition)
+                feedScrollId = viewModel.tabStates[newTab]?.scrollPosition
             }
         }
         .onChange(of: viewModel.currentTab) { _, newTab in
@@ -78,10 +82,24 @@ struct FeedView: View {
         .onChange(of: preferencesStore.followedCategories) {
             viewModel.onCategoriesChanged()
         }
+        .onChange(of: feedScrollId) { _, newId in
+            viewModel.onScrollPositionChanged(newId)
+        }
         .task {
+            // Restore persisted tab
+            let persistedTab = preferencesStore.lastActiveTab
+            if persistedTab != selectedTab {
+                selectedTab = persistedTab
+                viewModel.currentTab = persistedTab
+            }
+
             if viewModel.papers.isEmpty {
                 await viewModel.loadPapers()
             }
+
+            // Restore scroll position after papers load
+            // (state machine restored it from prefs during tabBecameActive)
+            feedScrollId = viewModel.tabStates[viewModel.currentTab]?.scrollPosition
         }
     }
 
@@ -170,6 +188,43 @@ struct FeedView: View {
                 Spacer()
             }
 
+            // New papers pill (top)
+            if viewModel.showNewPapersPill, let count = viewModel.tabStates[viewModel.currentTab]?.newPaperCount, count > 0 {
+                VStack {
+                    FeedPill(
+                        icon: "arrow.up",
+                        text: "\(count) new paper\(count == 1 ? "" : "s")"
+                    ) {
+                        viewModel.scrollToNewPapers()
+                        feedScrollId = viewModel.papers.first?.id
+                    }
+                    .padding(.top, 70)
+
+                    Spacer()
+                }
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .zIndex(5)
+            }
+
+            // Resume reading pill (bottom)
+            if viewModel.hasResumePosition {
+                VStack {
+                    Spacer()
+
+                    FeedPill(
+                        icon: "arrow.down",
+                        text: "Resume reading"
+                    ) {
+                        if let pos = viewModel.resumeReading() {
+                            feedScrollId = pos
+                        }
+                    }
+                    .padding(.bottom, 100)
+                }
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .zIndex(5)
+            }
+
             // Toast overlay
             if let toast = viewModel.toastError {
                 VStack {
@@ -184,6 +239,8 @@ struct FeedView: View {
             }
         }
         .animation(.easeInOut(duration: 0.3), value: viewModel.toastError != nil)
+        .animation(.spring(duration: 0.4), value: viewModel.showNewPapersPill)
+        .animation(.spring(duration: 0.4), value: viewModel.hasResumePosition)
     }
 
     // MARK: - Vertical Feed
@@ -206,6 +263,7 @@ struct FeedView: View {
             .scrollTargetLayout()
         }
         .scrollTargetBehavior(.viewAligned(limitBehavior: .always))
+        .scrollPosition(id: $feedScrollId)
         .sensoryFeedback(.impact(flexibility: .soft, intensity: 0.5), trigger: viewModel.lastBoundaryReached != nil) { oldValue, newValue in
             newValue
         }

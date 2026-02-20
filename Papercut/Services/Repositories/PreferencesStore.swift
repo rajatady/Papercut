@@ -137,6 +137,29 @@ final class PreferencesStore {
         preferences.paperRetentionDays = max(1, min(365, days))
     }
 
+    // MARK: - Scroll Position & Tab Persistence
+
+    var lastActiveTab: FeedTab {
+        get { FeedTab(rawValue: preferences.lastActiveTab) ?? .latest }
+        set { preferences.lastActiveTab = newValue.rawValue }
+    }
+
+    func savedScrollPosition(for tab: FeedTab) -> String? {
+        switch tab {
+        case .latest: return preferences.scrollPositionLatest
+        case .trending: return preferences.scrollPositionTrending
+        default: return nil
+        }
+    }
+
+    func saveScrollPosition(_ id: String?, for tab: FeedTab) {
+        switch tab {
+        case .latest: preferences.scrollPositionLatest = id
+        case .trending: preferences.scrollPositionTrending = id
+        default: break
+        }
+    }
+
     // MARK: - Reset
 
     func resetToDefaults() {

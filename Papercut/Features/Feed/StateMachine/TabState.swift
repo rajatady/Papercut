@@ -26,6 +26,8 @@ struct TabState {
     var hasMore: Bool
     var lastFetchedAt: Date?
     var showNewPapersPill: Bool
+    var newPaperCount: Int = 0
+    var resumeScrollPosition: String?
 
     static let initial = TabState(
         papers: [],
@@ -34,7 +36,9 @@ struct TabState {
         loadState: .empty,
         hasMore: true,
         lastFetchedAt: nil,
-        showNewPapersPill: false
+        showNewPapersPill: false,
+        newPaperCount: 0,
+        resumeScrollPosition: nil
     )
 
     static let staleThreshold: TimeInterval = 3600 // 1 hour
