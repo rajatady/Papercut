@@ -742,6 +742,33 @@ struct SavedTabTests {
         #expect(newState.papers.count == 3) // unchanged
         #expect(!effects.contains(.cancelFetch))
     }
+
+    // S5 (fix): fetchSucceeded → papers stored in state
+    @Test func S5_fetchSucceeded_storesPapers() {
+        let state = TabState.initial
+        let papers = makePapers(count: 3)
+        let (newState, effects) = TabStateMachine.transition(
+            state: state,
+            event: .fetchSucceeded(papers: papers, hasMore: false),
+            tab: .saved
+        )
+        #expect(newState.papers.count == 3)
+        #expect(newState.loadState == .loaded)
+        #expect(effects.contains(.queueSummaries))
+    }
+
+    // fetchSucceeded with empty papers → no queueSummaries
+    @Test func S_fetchSucceeded_emptyPapers_noQueueSummaries() {
+        let state = TabState.initial
+        let (newState, effects) = TabStateMachine.transition(
+            state: state,
+            event: .fetchSucceeded(papers: [], hasMore: false),
+            tab: .saved
+        )
+        #expect(newState.papers.isEmpty)
+        #expect(newState.loadState == .loaded)
+        #expect(!effects.contains(.queueSummaries))
+    }
 }
 
 // MARK: - New Papers Pill Tests

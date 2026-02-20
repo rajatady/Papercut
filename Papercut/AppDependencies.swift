@@ -35,6 +35,21 @@ final class AppDependencies {
         return repo
     }
 
+    // MARK: - Topic Repository
+    private var _topicRepository: TopicRepository?
+
+    var topicRepository: TopicRepository {
+        if let existing = _topicRepository {
+            return existing
+        }
+        let repo = TopicRepository(
+            modelContext: modelContainer.mainContext,
+            arXivService: arXivService
+        )
+        _topicRepository = repo
+        return repo
+    }
+
     // MARK: - ViewModels
     private var _feedViewModel: FeedViewModel?
 
@@ -44,9 +59,21 @@ final class AppDependencies {
         }
         let vm = FeedViewModel(
             repository: paperRepository,
+            topicRepository: topicRepository,
             preferencesStore: preferencesStore
         )
         _feedViewModel = vm
+        return vm
+    }
+
+    private var _topicListViewModel: TopicListViewModel?
+
+    var topicListViewModel: TopicListViewModel {
+        if let existing = _topicListViewModel {
+            return existing
+        }
+        let vm = TopicListViewModel(topicRepository: topicRepository)
+        _topicListViewModel = vm
         return vm
     }
 
@@ -61,7 +88,8 @@ final class AppDependencies {
         // Initialize SwiftData container
         let schema = Schema([
             Paper.self,
-            Summary.self
+            Summary.self,
+            Topic.self
         ])
 
         let modelConfiguration = ModelConfiguration(

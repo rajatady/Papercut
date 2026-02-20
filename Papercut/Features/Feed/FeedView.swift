@@ -12,10 +12,13 @@ struct FeedView: View {
     @Environment(ThemeManager.self) private var theme
     @State private var showingSettings = false
     @State private var showingSearch = false
+    @State private var showingFeedback = false
     @State private var shareItems: [Any] = []
     @State private var showingShareSheet = false
     @State private var browserURL: URL?
     @State private var selectedTab: FeedTab = .latest
+    @State private var topicToOpen: Topic?
+    @Namespace private var topicTransition
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -30,6 +33,22 @@ struct FeedView: View {
             Tab("Saved", systemImage: "bookmark.fill", value: .saved) {
                 feedContent
             }
+
+            Tab("Topics", systemImage: "text.magnifyingglass", value: .topics) {
+                NavigationStack {
+                    TopicListView(
+                        viewModel: AppDependencies.shared.topicListViewModel,
+                        showingSearch: $showingSearch,
+                        showingSettings: $showingSettings,
+                        topicToOpen: $topicToOpen,
+                        namespace: topicTransition
+                    )
+                    .navigationDestination(item: $topicToOpen) { topic in
+                        TopicDetailView(topic: topic, namespace: topicTransition)
+                            .navigationTransition(.zoom(sourceID: topic.id, in: topicTransition))
+                    }
+                }
+            }
         }
         .tabBarMinimizeBehavior(.onScrollDown)
         .sheet(isPresented: $showingSettings) {
@@ -37,6 +56,9 @@ struct FeedView: View {
         }
         .sheet(isPresented: $showingSearch) {
             SearchView()
+        }
+        .sheet(isPresented: $showingFeedback) {
+            FeedbackView()
         }
         .sheet(isPresented: $showingShareSheet) {
             ShareSheet(items: shareItems)
@@ -98,9 +120,18 @@ struct FeedView: View {
             .ignoresSafeArea(edges: .top)
             .allowsHitTesting(false)
 
-            // Floating header buttons (top-right)
+            // Floating header (wordmark left, buttons right)
             VStack {
                 HStack(spacing: Spacing.md) {
+                    // Wordmark
+                    Text("Papercut")
+                        .font(.system(size: 17, weight: .semibold, design: .serif))
+                        .tracking(-0.3)
+                        .foregroundStyle(theme.colors.textPrimary)
+                        .padding(.horizontal, Spacing.lg)
+                        .padding(.vertical, Spacing.md)
+                        .glassEffect(.regular, in: .capsule)
+
                     Spacer()
 
                     if viewModel.isRefreshingInBackground {
@@ -118,6 +149,10 @@ struct FeedView: View {
                             .glassEffect(.regular, in: .circle)
                     }
                     .buttonStyle(SoftPressButtonStyle())
+
+                    FeedbackPulseButton {
+                        showingFeedback = true
+                    }
 
                     Button { showingSettings = true } label: {
                         Image(systemName: "gearshape")
@@ -170,7 +205,10 @@ struct FeedView: View {
             }
             .scrollTargetLayout()
         }
-        .scrollTargetBehavior(.paging)
+        .scrollTargetBehavior(.viewAligned(limitBehavior: .always))
+        .sensoryFeedback(.impact(flexibility: .soft, intensity: 0.5), trigger: viewModel.lastBoundaryReached != nil) { oldValue, newValue in
+            newValue
+        }
     }
 
     // MARK: - Paper Card Container

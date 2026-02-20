@@ -23,6 +23,8 @@ enum TabStateMachine {
             return transitionLatest(state: state, event: event, now: now)
         case .trending:
             return transitionTrending(state: state, event: event, now: now)
+        case .topics:
+            return transitionTopics(state: state, event: event, now: now)
         }
     }
 
@@ -326,6 +328,38 @@ enum TabStateMachine {
         return (newState, effects)
     }
 
+    // MARK: - Topics Tab
+
+    /// Topics tab is managed by TopicListViewModel, not the feed state machine.
+    /// Only scroll position save/restore is handled here.
+    private static func transitionTopics(
+        state: TabState,
+        event: FeedEvent,
+        now: Date
+    ) -> (TabState, [FeedSideEffect]) {
+        var newState = state
+        var effects: [FeedSideEffect] = []
+
+        switch event {
+        case .tabBecameActive:
+            newState.loadState = .loaded
+            if state.loadState == .loaded {
+                effects.append(.restoreScrollPosition)
+            }
+
+        case .tabBecameInactive(let scrollPos):
+            newState.scrollPosition = scrollPos
+            if let scrollPos {
+                effects.append(.saveScrollPosition(scrollPos))
+            }
+
+        default:
+            break
+        }
+
+        return (newState, effects)
+    }
+
     // MARK: - Saved Tab
 
     private static func transitionSaved(
@@ -368,8 +402,16 @@ enum TabStateMachine {
         case .appForegrounded:
             effects.append(.querySwiftData)
 
+        // S5: fetchSucceeded from querySwiftData → update papers
+        case .fetchSucceeded(let papers, _):
+            newState.papers = papers
+            newState.loadState = .loaded
+            if !papers.isEmpty {
+                effects.append(.queueSummaries)
+            }
+
         // Everything else: no-op for saved tab
-        // categoriesChanged, loadMoreTriggered, retryTapped, fetch events, etc.
+        // categoriesChanged, loadMoreTriggered, retryTapped, etc.
         default:
             break
         }
