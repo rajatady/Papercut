@@ -96,7 +96,7 @@ struct FeedViewModelTests {
         #expect(vm.isLoading == false)
         #expect(vm.isLoadingMore == false)
         #expect(vm.error == nil)
-        #expect(vm.currentTab == .forYou)
+        #expect(vm.currentTab == .latest)
         #expect(vm.currentPaperIndex == 0)
         #expect(vm.searchQuery.isEmpty)
         #expect(vm.toastError == nil)
@@ -252,7 +252,7 @@ struct FeedViewModelTests {
         let (vm, mockArXiv, _) = makeTestDependencies()
         let initialCallCount = mockArXiv.fetchCallCount
 
-        await vm.switchTab(to: .forYou) // Same as default
+        await vm.switchTab(to: .latest) // Same as default
 
         #expect(mockArXiv.fetchCallCount == initialCallCount)
     }
@@ -406,17 +406,15 @@ struct FeedViewModelTests {
     // MARK: - FeedTab
 
     @Test func feedTab_allCases() {
-        #expect(FeedTab.allCases.count == 4)
-        #expect(FeedTab.forYou.rawValue == "For You")
-        #expect(FeedTab.trending.rawValue == "Trending")
+        #expect(FeedTab.allCases.count == 3)
         #expect(FeedTab.latest.rawValue == "Latest")
+        #expect(FeedTab.trending.rawValue == "Trending")
         #expect(FeedTab.saved.rawValue == "Saved")
     }
 
     @Test func feedTab_iconNames() {
-        #expect(FeedTab.forYou.iconName == "sparkles")
-        #expect(FeedTab.trending.iconName == "flame.fill")
         #expect(FeedTab.latest.iconName == "clock.fill")
+        #expect(FeedTab.trending.iconName == "flame.fill")
         #expect(FeedTab.saved.iconName == "bookmark.fill")
     }
 }

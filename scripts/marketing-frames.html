@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Inter:wght@400;500;600&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    overflow: hidden;
+    font-family: 'Inter', -apple-system, sans-serif;
+  }
+
+  .slide {
+    display: none;
+    position: relative;
+    overflow: hidden;
+  }
+  .slide.active { display: flex; }
+
+  .iphone-frame {
+    position: relative;
+    border-radius: 52px;
+    overflow: hidden;
+    box-shadow:
+      0 25px 80px rgba(0,0,0,0.25),
+      0 8px 30px rgba(0,0,0,0.15),
+      inset 0 0 0 2px rgba(255,255,255,0.1);
+  }
+  .iphone-frame img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .ipad-frame {
+    position: relative;
+    border-radius: 28px;
+    overflow: hidden;
+    box-shadow:
+      0 25px 80px rgba(0,0,0,0.2),
+      0 8px 30px rgba(0,0,0,0.1),
+      inset 0 0 0 2px rgba(255,255,255,0.1);
+  }
+  .ipad-frame img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .headline {
+    font-family: 'Playfair Display', Georgia, serif;
+    color: #1A1A1A;
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+  }
+  .headline.light { color: #F5F5F3; }
+
+  .subheadline {
+    font-family: 'Inter', sans-serif;
+    color: #666;
+    line-height: 1.4;
+    font-weight: 400;
+  }
+  .subheadline.light { color: rgba(245,245,243,0.7); }
+
+  .bg-warm { background: linear-gradient(160deg, #F5F5F3 0%, #E8E6E1 40%, #DDD8D0 100%); }
+  .bg-sage { background: linear-gradient(160deg, #E8F0E8 0%, #D4E4D4 40%, #B8CCBA 100%); }
+  .bg-dark { background: linear-gradient(160deg, #1A1A1A 0%, #2A2A2A 40%, #1E2A1E 100%); }
+  .bg-coral { background: linear-gradient(160deg, #F5EDE8 0%, #ECDDD4 40%, #E4BCB2 100%); }
+  .bg-blue { background: linear-gradient(160deg, #E8EEF5 0%, #D4DEE8 40%, #B8C8D8 100%); }
+
+  .blob {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(80px);
+    opacity: 0.4;
+    pointer-events: none;
+  }
+</style>
+</head>
+<body>
+
+<!-- ============================================================ -->
+<!-- IPHONE SLIDES (1290 x 2796)                                  -->
+<!-- Straight: 1200x2608, top:480px (overflow ~292px)             -->
+<!-- Diagonal: 1150x2499, top:480px with rotation                 -->
+<!-- ============================================================ -->
+
+<!-- iPhone 1: Hero - Feed -->
+<div class="slide" id="iphone-1" style="width:1290px;height:2796px;">
+  <div class="bg-warm" style="width:100%;height:100%;position:relative;">
+    <div class="blob" style="width:500px;height:500px;background:#8BAF8B;top:80px;right:-120px;"></div>
+    <div class="blob" style="width:400px;height:400px;background:#E4BCB2;bottom:400px;left:-100px;"></div>
+    <div style="text-align:center;position:absolute;top:110px;left:0;right:0;z-index:1;">
+      <h1 class="headline" style="font-size:88px;margin-bottom:24px;">Swipe through<br>research.</h1>
+      <p class="subheadline" style="font-size:38px;">AI explains the rest.</p>
+    </div>
+    <div class="iphone-frame" style="width:1200px;height:2608px;z-index:1;position:absolute;top:480px;left:50%;transform:translateX(-50%);">
+      <img id="iphone-1-img" src="" alt="Feed">
+    </div>
+  </div>
+</div>
+
+<!-- iPhone 2: AI Summaries (diagonal) -->
+<div class="slide" id="iphone-2" style="width:1290px;height:2796px;">
+  <div class="bg-sage" style="width:100%;height:100%;position:relative;">
+    <div class="blob" style="width:500px;height:500px;background:#F2C6CF;top:300px;left:-150px;"></div>
+    <div class="blob" style="width:350px;height:350px;background:#8BAF8B;bottom:100px;right:-100px;"></div>
+    <div style="text-align:center;position:absolute;top:110px;left:0;right:0;z-index:1;">
+      <h1 class="headline" style="font-size:84px;margin-bottom:24px;">7 AI summary<br>styles.</h1>
+      <p class="subheadline" style="font-size:36px;">All generated on-device. No cloud.</p>
+    </div>
+    <div class="iphone-frame" style="width:1150px;height:2499px;z-index:1;position:absolute;top:480px;left:55%;transform:translateX(-50%) rotate(-5deg);">
+      <img id="iphone-2-img" src="" alt="Feed Dark">
+    </div>
+  </div>
+</div>
+
+<!-- iPhone 3: Search -->
+<div class="slide" id="iphone-3" style="width:1290px;height:2796px;">
+  <div class="bg-blue" style="width:100%;height:100%;position:relative;">
+    <div class="blob" style="width:400px;height:400px;background:#5B8FB9;top:150px;left:-100px;"></div>
+    <div class="blob" style="width:350px;height:350px;background:#B8CCCA;bottom:300px;right:-80px;"></div>
+    <div style="text-align:center;position:absolute;top:110px;left:0;right:0;z-index:1;">
+      <h1 class="headline" style="font-size:84px;margin-bottom:24px;">2M+ papers<br>at your fingertips.</h1>
+      <p class="subheadline" style="font-size:36px;">Search by title, author, or topic.</p>
+    </div>
+    <div class="iphone-frame" style="width:1200px;height:2608px;z-index:1;position:absolute;top:480px;left:50%;transform:translateX(-50%);">
+      <img id="iphone-3-img" src="" alt="Search">
+    </div>
+  </div>
+</div>
+
+<!-- iPhone 4: Categories -->
+<div class="slide" id="iphone-4" style="width:1290px;height:2796px;">
+  <div class="bg-coral" style="width:100%;height:100%;position:relative;">
+    <div class="blob" style="width:400px;height:400px;background:#E4BCB2;top:100px;right:-80px;"></div>
+    <div class="blob" style="width:300px;height:300px;background:#F2C6CF;bottom:200px;left:-60px;"></div>
+    <div style="text-align:center;position:absolute;top:110px;left:0;right:0;z-index:1;">
+      <h1 class="headline" style="font-size:84px;margin-bottom:24px;">Follow what<br>matters.</h1>
+      <p class="subheadline" style="font-size:36px;">Curate your research feed.</p>
+    </div>
+    <div class="iphone-frame" style="width:1200px;height:2608px;z-index:1;position:absolute;top:480px;left:50%;transform:translateX(-50%);">
+      <img id="iphone-4-img" src="" alt="Categories">
+    </div>
+  </div>
+</div>
+
+<!-- iPhone 5: Privacy / Dark (diagonal) -->
+<div class="slide" id="iphone-5" style="width:1290px;height:2796px;">
+  <div class="bg-dark" style="width:100%;height:100%;position:relative;">
+    <div class="blob" style="width:500px;height:500px;background:#8BAF8B;opacity:0.2;top:200px;left:-100px;"></div>
+    <div class="blob" style="width:400px;height:400px;background:#5B8FB9;opacity:0.15;bottom:200px;right:-80px;"></div>
+    <div style="text-align:center;position:absolute;top:110px;left:0;right:0;z-index:1;">
+      <h1 class="headline light" style="font-size:84px;margin-bottom:24px;">Your data stays<br>on your device.</h1>
+      <p class="subheadline light" style="font-size:36px;">No login. No tracking. No cloud.</p>
+    </div>
+    <div class="iphone-frame" style="width:1150px;height:2499px;z-index:1;position:absolute;top:480px;left:45%;transform:translateX(-50%) rotate(3deg);">
+      <img id="iphone-5-img" src="" alt="Dark Mode">
+    </div>
+  </div>
+</div>
+
+<!-- iPhone 6: Trending -->
+<div class="slide" id="iphone-6" style="width:1290px;height:2796px;">
+  <div class="bg-warm" style="width:100%;height:100%;position:relative;">
+    <div class="blob" style="width:400px;height:400px;background:#E4A853;top:100px;left:-80px;"></div>
+    <div class="blob" style="width:350px;height:350px;background:#E4C95B;bottom:200px;right:-100px;"></div>
+    <div style="text-align:center;position:absolute;top:110px;left:0;right:0;z-index:1;">
+      <h1 class="headline" style="font-size:84px;margin-bottom:24px;">Stay on top of<br>what's trending.</h1>
+      <p class="subheadline" style="font-size:36px;">Hottest papers from the last 30 days.</p>
+    </div>
+    <div class="iphone-frame" style="width:1200px;height:2608px;z-index:1;position:absolute;top:480px;left:50%;transform:translateX(-50%);">
+      <img id="iphone-6-img" src="" alt="Trending">
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- IPAD SLIDES (2064 x 2752)                                    -->
+<!-- Side-by-side: padding:150px, gap:100px, device 1300x1734     -->
+<!-- Centered overflow: device 1900x2533, top:450px               -->
+<!-- ============================================================ -->
+
+<!-- iPad 1: Hero - Feed (side-by-side, text left) -->
+<div class="slide" id="ipad-1" style="width:2064px;height:2752px;">
+  <div class="bg-warm" style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;gap:100px;padding:150px;">
+    <div class="blob" style="width:600px;height:600px;background:#8BAF8B;top:100px;right:200px;"></div>
+    <div class="blob" style="width:500px;height:500px;background:#E4BCB2;bottom:100px;left:100px;"></div>
+    <div style="flex:1;z-index:1;max-width:650px;">
+      <h1 class="headline" style="font-size:96px;margin-bottom:40px;">Swipe through research.</h1>
+      <p class="subheadline" style="font-size:40px;margin-bottom:60px;">AI explains the rest. Browse, search, and summarize papers from arXiv — entirely on-device.</p>
+      <div style="display:flex;gap:16px;flex-wrap:wrap;">
+        <span style="font-size:28px;padding:14px 28px;background:rgba(139,175,139,0.2);border-radius:100px;color:#4A7A4A;font-weight:500;">On-device AI</span>
+        <span style="font-size:28px;padding:14px 28px;background:rgba(228,188,178,0.3);border-radius:100px;color:#8B5A4A;font-weight:500;">Privacy-first</span>
+        <span style="font-size:28px;padding:14px 28px;background:rgba(91,143,185,0.2);border-radius:100px;color:#3A6A8A;font-weight:500;">2M+ papers</span>
+      </div>
+    </div>
+    <div class="ipad-frame" style="width:1300px;height:1734px;z-index:1;">
+      <img id="ipad-1-img" src="" alt="Feed">
+    </div>
+  </div>
+</div>
+
+<!-- iPad 2: AI Summaries (centered, overflows bottom) -->
+<div class="slide" id="ipad-2" style="width:2064px;height:2752px;">
+  <div class="bg-sage" style="width:100%;height:100%;position:relative;">
+    <div class="blob" style="width:600px;height:600px;background:#F2C6CF;top:200px;left:-100px;"></div>
+    <div class="blob" style="width:400px;height:400px;background:#8BAF8B;bottom:200px;right:-80px;"></div>
+    <div style="text-align:center;position:absolute;top:110px;left:0;right:0;z-index:1;">
+      <h1 class="headline" style="font-size:100px;margin-bottom:30px;">7 AI summary styles.</h1>
+      <p class="subheadline" style="font-size:42px;">All generated on-device using Apple Foundation Models.</p>
+    </div>
+    <div class="ipad-frame" style="width:1900px;height:2533px;z-index:1;position:absolute;top:450px;left:50%;transform:translateX(-50%);">
+      <img id="ipad-2-img" src="" alt="Feed">
+    </div>
+  </div>
+</div>
+
+<!-- iPad 3: Search (side-by-side, device left) -->
+<div class="slide" id="ipad-3" style="width:2064px;height:2752px;">
+  <div class="bg-blue" style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;gap:100px;padding:150px;">
+    <div class="blob" style="width:500px;height:500px;background:#5B8FB9;top:200px;left:-100px;"></div>
+    <div class="blob" style="width:400px;height:400px;background:#B8CCCA;bottom:200px;right:-80px;"></div>
+    <div class="ipad-frame" style="width:1300px;height:1734px;z-index:1;">
+      <img id="ipad-3-img" src="" alt="Search">
+    </div>
+    <div style="flex:1;z-index:1;max-width:650px;">
+      <h1 class="headline" style="font-size:96px;margin-bottom:40px;">Search anything.</h1>
+      <p class="subheadline" style="font-size:40px;">2M+ papers across every field. Search by title, author, topic, or ArXiv ID.</p>
+    </div>
+  </div>
+</div>
+
+<!-- iPad 4: Categories (centered, overflows bottom) -->
+<div class="slide" id="ipad-4" style="width:2064px;height:2752px;">
+  <div class="bg-coral" style="width:100%;height:100%;position:relative;">
+    <div class="blob" style="width:400px;height:400px;background:#E4BCB2;top:100px;right:-80px;"></div>
+    <div class="blob" style="width:300px;height:300px;background:#F2C6CF;bottom:200px;left:-60px;"></div>
+    <div style="text-align:center;position:absolute;top:110px;left:0;right:0;z-index:1;">
+      <h1 class="headline" style="font-size:100px;margin-bottom:30px;">Follow what matters.</h1>
+      <p class="subheadline" style="font-size:42px;">Curate your research feed.</p>
+    </div>
+    <div class="ipad-frame" style="width:1900px;height:2533px;z-index:1;position:absolute;top:450px;left:50%;transform:translateX(-50%);">
+      <img id="ipad-4-img" src="" alt="Categories">
+    </div>
+  </div>
+</div>
+
+<!-- iPad 5: Privacy / Dark (centered, overflow, slight rotation) -->
+<div class="slide" id="ipad-5" style="width:2064px;height:2752px;">
+  <div class="bg-dark" style="width:100%;height:100%;position:relative;">
+    <div class="blob" style="width:500px;height:500px;background:#8BAF8B;opacity:0.2;top:200px;right:100px;"></div>
+    <div class="blob" style="width:400px;height:400px;background:#5B8FB9;opacity:0.15;bottom:200px;left:-80px;"></div>
+    <div style="text-align:center;position:absolute;top:110px;left:0;right:0;z-index:1;">
+      <h1 class="headline light" style="font-size:100px;margin-bottom:30px;">Your data stays on your device.</h1>
+      <p class="subheadline light" style="font-size:42px;">No login. No tracking. No cloud.</p>
+    </div>
+    <div class="ipad-frame" style="width:1900px;height:2533px;z-index:1;position:absolute;top:450px;left:50%;transform:translateX(-50%) rotate(-2deg);">
+      <img id="ipad-5-img" src="" alt="Dark Mode">
+    </div>
+  </div>
+</div>
+
+<!-- iPad 6: Trending (side-by-side, text left) -->
+<div class="slide" id="ipad-6" style="width:2064px;height:2752px;">
+  <div class="bg-warm" style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;gap:100px;padding:150px;">
+    <div class="blob" style="width:400px;height:400px;background:#E4A853;top:100px;left:-80px;"></div>
+    <div class="blob" style="width:350px;height:350px;background:#E4C95B;bottom:200px;right:-100px;"></div>
+    <div style="flex:1;z-index:1;max-width:650px;">
+      <h1 class="headline" style="font-size:96px;margin-bottom:40px;">Stay on top of what's trending.</h1>
+      <p class="subheadline" style="font-size:40px;">Hottest papers from the last 30 days.</p>
+    </div>
+    <div class="ipad-frame" style="width:1300px;height:1734px;z-index:1;">
+      <img id="ipad-6-img" src="" alt="Trending">
+    </div>
+  </div>
+</div>
+
+<script>
+  function showSlide() {
+    const id = location.hash.slice(1) || 'iphone-1';
+    document.querySelectorAll('.slide').forEach(s => s.classList.remove('active'));
+    const slide = document.getElementById(id);
+    if (slide) slide.classList.add('active');
+  }
+  window.addEventListener('hashchange', showSlide);
+  showSlide();
+</script>
+</body>
+</html>

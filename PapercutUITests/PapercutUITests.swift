@@ -679,7 +679,7 @@ final class AccessibilityUITests: XCTestCase {
     override func setUpWithError() throws {
         continueAfterFailure = false
         app = XCUIApplication()
-        app.launchArgumenDownts = ["--uitesting", "--skip-onboarding"]
+        app.launchArguments = ["--uitesting", "--skip-onboarding"]
         app.launch()
     }
 
