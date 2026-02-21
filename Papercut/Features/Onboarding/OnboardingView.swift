@@ -11,6 +11,8 @@ struct OnboardingView: View {
     @State private var currentPage = 0
     @State private var selectedCategories: Set<String> = []
     @State private var animateGradient = false
+    @State private var digestTime = Calendar.current.date(from: DateComponents(hour: 9, minute: 0)) ?? Date()
+    @State private var notificationPermissionDenied = false
 
     private let popularCategories = [
         ("cs.AI", "AI", "cpu.fill"),
@@ -37,11 +39,12 @@ struct OnboardingView: View {
                     welcomePage.tag(0)
                     categorySelectionPage.tag(1)
                     featuresPage.tag(2)
-                    readyPage.tag(3)
+                    notificationPage.tag(3)
+                    readyPage.tag(4)
                 }
                 .tabViewStyle(.page(indexDisplayMode: .never))
 
-                LiquidDotsIndicator(totalPages: 4, currentPage: currentPage)
+                LiquidDotsIndicator(totalPages: 5, currentPage: currentPage)
                     .padding(.bottom, Spacing.lg)
             }
         }
@@ -239,9 +242,125 @@ struct OnboardingView: View {
 
             nextButton(title: "Almost There") {
                 withAnimation(.spring()) {
-                    currentPage = 3
+                    currentPage = 3 // notification page
                 }
             }
+        }
+        .padding()
+    }
+
+    // MARK: - Notification Page
+
+    private var notificationPage: some View {
+        VStack(spacing: 24) {
+            Spacer()
+
+            // Icon
+            ZStack {
+                Circle()
+                    .fill(
+                        LinearGradient(
+                            colors: [ColorTokens.pastelCoral, ColorTokens.pastelPink],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: 120, height: 120)
+                    .blur(radius: 20)
+
+                Image(systemName: "bell.badge.fill")
+                    .font(.system(size: 60))
+                    .foregroundStyle(theme.colors.textPrimary)
+            }
+
+            VStack(spacing: Spacing.xl) {
+                Text("Stay in the Loop")
+                    .font(AppTypography.sectionTitle)
+                    .tracking(AppTypography.Tracking.sectionTitle)
+                    .fontWeight(.bold)
+                    .foregroundStyle(theme.colors.textPrimary)
+
+                Text("Never miss important research")
+                    .font(AppTypography.bodyRegular)
+                    .foregroundStyle(theme.colors.textSecondary)
+            }
+
+            VStack(spacing: Spacing.lg) {
+                featureCard(
+                    icon: "newspaper.fill",
+                    color: theme.colors.accent,
+                    title: "Daily Digest",
+                    description: "A morning summary of new papers in your fields"
+                )
+
+                featureCard(
+                    icon: "sparkles",
+                    color: ColorTokens.pastelCoral,
+                    title: "Topic Alerts",
+                    description: "Know when research drops in topics you follow"
+                )
+
+                featureCard(
+                    icon: "flame.fill",
+                    color: ColorTokens.pastelSage,
+                    title: "Trending Papers",
+                    description: "Don't miss breakout research"
+                )
+            }
+            .padding(.horizontal, Spacing.xxxl)
+
+            // Time picker
+            HStack {
+                Label("Delivery time", systemImage: "clock")
+                    .font(.subheadline)
+                    .foregroundStyle(theme.colors.textSecondary)
+
+                Spacer()
+
+                DatePicker("", selection: $digestTime, displayedComponents: .hourAndMinute)
+                    .labelsHidden()
+                    .tint(theme.colors.accent)
+            }
+            .padding(.horizontal, 32)
+
+            if notificationPermissionDenied {
+                Text("You can enable notifications later in Settings")
+                    .font(.caption)
+                    .foregroundStyle(Color(hex: "E4A853"))
+                    .transition(.opacity)
+            }
+
+            Spacer()
+
+            // Enable button
+            nextButton(title: "Enable Notifications") {
+                Task {
+                    let components = Calendar.current.dateComponents([.hour, .minute], from: digestTime)
+                    preferencesStore.setDailyDigestTime(
+                        hour: components.hour ?? 9,
+                        minute: components.minute ?? 0
+                    )
+                    let granted = await preferencesStore.setNotificationsEnabled(true)
+                    if !granted {
+                        withAnimation { notificationPermissionDenied = true }
+                    }
+                    withAnimation(.spring()) {
+                        currentPage = 4
+                    }
+                }
+            }
+
+            // Skip link
+            Button {
+                withAnimation(.spring()) {
+                    currentPage = 4
+                }
+            } label: {
+                Text("Maybe Later")
+                    .font(.subheadline)
+                    .foregroundStyle(theme.colors.textMuted)
+            }
+            .padding(.bottom, 16)
         }
         .padding()
     }

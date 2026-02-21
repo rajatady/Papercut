@@ -16,6 +16,14 @@ struct UserPreferences: Codable {
     var lastActiveTab: String
     var scrollPositionLatest: String?
     var scrollPositionTrending: String?
+    var notificationsEnabled: Bool
+    var dailyDigestEnabled: Bool
+    var dailyDigestHour: Int
+    var dailyDigestMinute: Int
+    var hasRequestedNotificationPermission: Bool
+    var topicNotificationsEnabled: Bool
+    var newFeedItemsNotificationEnabled: Bool
+    var lastKnownLatestPaperId: String?
 
     init(
         followedCategories: [String] = [],
@@ -27,7 +35,15 @@ struct UserPreferences: Codable {
         hasCompletedOnboarding: Bool = false,
         lastActiveTab: String = "Latest",
         scrollPositionLatest: String? = nil,
-        scrollPositionTrending: String? = nil
+        scrollPositionTrending: String? = nil,
+        notificationsEnabled: Bool = false,
+        dailyDigestEnabled: Bool = true,
+        dailyDigestHour: Int = 9,
+        dailyDigestMinute: Int = 0,
+        hasRequestedNotificationPermission: Bool = false,
+        topicNotificationsEnabled: Bool = true,
+        newFeedItemsNotificationEnabled: Bool = true,
+        lastKnownLatestPaperId: String? = nil
     ) {
         self.followedCategories = followedCategories
         self.enabledSummaryStyles = enabledSummaryStyles
@@ -39,6 +55,14 @@ struct UserPreferences: Codable {
         self.lastActiveTab = lastActiveTab
         self.scrollPositionLatest = scrollPositionLatest
         self.scrollPositionTrending = scrollPositionTrending
+        self.notificationsEnabled = notificationsEnabled
+        self.dailyDigestEnabled = dailyDigestEnabled
+        self.dailyDigestHour = dailyDigestHour
+        self.dailyDigestMinute = dailyDigestMinute
+        self.hasRequestedNotificationPermission = hasRequestedNotificationPermission
+        self.topicNotificationsEnabled = topicNotificationsEnabled
+        self.newFeedItemsNotificationEnabled = newFeedItemsNotificationEnabled
+        self.lastKnownLatestPaperId = lastKnownLatestPaperId
     }
 
     init(from decoder: Decoder) throws {
@@ -53,6 +77,14 @@ struct UserPreferences: Codable {
         lastActiveTab = try container.decodeIfPresent(String.self, forKey: .lastActiveTab) ?? "Latest"
         scrollPositionLatest = try container.decodeIfPresent(String.self, forKey: .scrollPositionLatest)
         scrollPositionTrending = try container.decodeIfPresent(String.self, forKey: .scrollPositionTrending)
+        notificationsEnabled = try container.decodeIfPresent(Bool.self, forKey: .notificationsEnabled) ?? false
+        dailyDigestEnabled = try container.decodeIfPresent(Bool.self, forKey: .dailyDigestEnabled) ?? true
+        dailyDigestHour = try container.decodeIfPresent(Int.self, forKey: .dailyDigestHour) ?? 9
+        dailyDigestMinute = try container.decodeIfPresent(Int.self, forKey: .dailyDigestMinute) ?? 0
+        hasRequestedNotificationPermission = try container.decodeIfPresent(Bool.self, forKey: .hasRequestedNotificationPermission) ?? false
+        topicNotificationsEnabled = try container.decodeIfPresent(Bool.self, forKey: .topicNotificationsEnabled) ?? true
+        newFeedItemsNotificationEnabled = try container.decodeIfPresent(Bool.self, forKey: .newFeedItemsNotificationEnabled) ?? true
+        lastKnownLatestPaperId = try container.decodeIfPresent(String.self, forKey: .lastKnownLatestPaperId)
     }
 
     // MARK: - Computed Properties

@@ -5,6 +5,7 @@
 
 import Foundation
 import Observation
+import UserNotifications
 
 @Observable
 @MainActor
@@ -160,9 +161,100 @@ final class PreferencesStore {
         }
     }
 
+    // MARK: - Notifications
+
+    var notificationsEnabled: Bool {
+        preferences.notificationsEnabled
+    }
+
+    var dailyDigestEnabled: Bool {
+        preferences.dailyDigestEnabled
+    }
+
+    var dailyDigestHour: Int {
+        preferences.dailyDigestHour
+    }
+
+    var dailyDigestMinute: Int {
+        preferences.dailyDigestMinute
+    }
+
+    var hasRequestedNotificationPermission: Bool {
+        preferences.hasRequestedNotificationPermission
+    }
+
+    /// Enable or disable notifications. Handles OS permission request if needed.
+    /// Returns true if notifications were successfully enabled.
+    @discardableResult
+    func setNotificationsEnabled(_ enabled: Bool) async -> Bool {
+        if enabled {
+            // Check current OS authorization
+            let status = await NotificationManager.shared.authorizationStatus()
+
+            if status == .denied {
+                return false
+            }
+
+            if status == .notDetermined {
+                preferences.hasRequestedNotificationPermission = true
+                let granted = await NotificationManager.shared.requestPermission()
+                if !granted {
+                    return false
+                }
+            }
+
+            preferences.notificationsEnabled = true
+        } else {
+            preferences.notificationsEnabled = false
+        }
+
+        NotificationManager.shared.rescheduleAll(preferences: preferences)
+        return preferences.notificationsEnabled
+    }
+
+    func setDailyDigestEnabled(_ enabled: Bool) {
+        preferences.dailyDigestEnabled = enabled
+        NotificationManager.shared.rescheduleAll(preferences: preferences)
+    }
+
+    func setDailyDigestTime(hour: Int, minute: Int) {
+        preferences.dailyDigestHour = max(0, min(23, hour))
+        preferences.dailyDigestMinute = max(0, min(59, minute))
+        NotificationManager.shared.rescheduleAll(preferences: preferences)
+    }
+
+    // MARK: - Background Task Notifications
+
+    var topicNotificationsEnabled: Bool {
+        preferences.topicNotificationsEnabled
+    }
+
+    var newFeedItemsNotificationEnabled: Bool {
+        preferences.newFeedItemsNotificationEnabled
+    }
+
+    var lastKnownLatestPaperId: String? {
+        preferences.lastKnownLatestPaperId
+    }
+
+    func setTopicNotificationsEnabled(_ enabled: Bool) {
+        preferences.topicNotificationsEnabled = enabled
+        NotificationManager.shared.rescheduleAll(preferences: preferences)
+    }
+
+    func setNewFeedItemsNotificationEnabled(_ enabled: Bool) {
+        preferences.newFeedItemsNotificationEnabled = enabled
+        NotificationManager.shared.rescheduleAll(preferences: preferences)
+    }
+
+    func setLastKnownLatestPaperId(_ id: String?) {
+        preferences.lastKnownLatestPaperId = id
+    }
+
     // MARK: - Reset
 
     func resetToDefaults() {
         preferences = .default
+        NotificationManager.shared.cancelAll()
     }
 }

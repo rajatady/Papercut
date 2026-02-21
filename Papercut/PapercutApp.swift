@@ -33,6 +33,9 @@ struct PapercutApp: App {
             }
         }
 
+        // Register background tasks before app finishes launching
+        BackgroundTaskManager.shared.registerTasks()
+
         _themeManager = State(initialValue: theme)
     }
 
@@ -44,6 +47,11 @@ struct PapercutApp: App {
                 .environment(themeManager)
                 .modelContainer(dependencies.modelContainer)
                 .preferredColorScheme(themeManager.colorScheme)
+                .task {
+                    NotificationManager.shared.rescheduleAll(
+                        preferences: dependencies.preferencesStore.preferences
+                    )
+                }
         }
     }
 }
