@@ -19,4 +19,6 @@ enum FeedEvent {
     case paperUnbookmarked(paperId: String)
     case newPapersPillTapped
     case newPapersPillDismissed
+    case resumeReadingTapped
+    case scrollPositionChanged(String?)
 }

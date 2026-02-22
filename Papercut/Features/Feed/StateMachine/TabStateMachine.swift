@@ -23,6 +23,8 @@ enum TabStateMachine {
             return transitionLatest(state: state, event: event, now: now)
         case .trending:
             return transitionTrending(state: state, event: event, now: now)
+        case .topics:
+            return transitionTopics(state: state, event: event, now: now)
         }
     }
 
@@ -38,9 +40,10 @@ enum TabStateMachine {
 
         switch (state.loadState, event) {
 
-        // L1: .empty → tabBecameActive → .loading + fetch
+        // L1: .empty → tabBecameActive → .loading + fetch + restore scroll
         case (.empty, .tabBecameActive):
             newState.loadState = .loading
+            effects.append(.restoreScrollPosition)
             effects.append(.fetch(page: 0, forceRefresh: false))
 
         // L18: .error → tabBecameActive → .loading (auto-retry)
@@ -113,18 +116,25 @@ enum TabStateMachine {
             newState.loadState = .refreshing
             effects.append(.fetch(page: 0, forceRefresh: true))
 
-        // L11: .refreshing → fetchSucceeded → .loaded, replace data
+        // L11: .refreshing → fetchSucceeded → .loaded, prepend new papers
         case (.refreshing, .fetchSucceeded(let papers, let hasMore)):
-            // Show pill if user is scrolled deep
-            if let scrollPos = state.scrollPosition, !scrollPos.isEmpty {
-                newState.showNewPapersPill = true
+            let existingIds = Set(state.papers.map(\.id))
+            let newPapers = papers.filter { !existingIds.contains($0.id) }
+            if newPapers.isEmpty {
+                newState.lastFetchedAt = now
+                newState.loadState = .loaded
+            } else {
+                newState.papers = newPapers + state.papers
+                newState.newPaperCount = newPapers.count
+                newState.lastFetchedAt = now
+                newState.hasMore = hasMore
+                newState.loadState = .loaded
+                newState.page = 0
+                if let scrollPos = state.scrollPosition, !scrollPos.isEmpty {
+                    newState.showNewPapersPill = true
+                }
+                effects.append(.queueSummaries)
             }
-            newState.loadState = .loaded
-            newState.papers = papers
-            newState.page = 0
-            newState.hasMore = hasMore
-            newState.lastFetchedAt = now
-            effects.append(.queueSummaries)
 
         // L12: .refreshing → fetchFailed → .loaded + toast
         case (.refreshing, .fetchFailed):
@@ -185,10 +195,23 @@ enum TabStateMachine {
         // New papers pill
         case (_, .newPapersPillTapped):
             newState.showNewPapersPill = false
+            newState.resumeScrollPosition = state.scrollPosition
+            newState.newPaperCount = 0
             effects.append(.scrollToTop)
 
         case (_, .newPapersPillDismissed):
             newState.showNewPapersPill = false
+
+        case (_, .resumeReadingTapped):
+            newState.scrollPosition = state.resumeScrollPosition
+            newState.resumeScrollPosition = nil
+
+        // Scroll position changed → persist
+        case (_, .scrollPositionChanged(let pos)):
+            newState.scrollPosition = pos
+            if let pos {
+                effects.append(.saveScrollPosition(pos))
+            }
 
         // All other combinations: no-op
         default:
@@ -210,9 +233,10 @@ enum TabStateMachine {
 
         switch (state.loadState, event) {
 
-        // T1: .empty → tabBecameActive → .loading
+        // T1: .empty → tabBecameActive → .loading + restore scroll
         case (.empty, .tabBecameActive):
             newState.loadState = .loading
+            effects.append(.restoreScrollPosition)
             effects.append(.fetchTrending)
 
         // T: .error → tabBecameActive → .loading (auto-retry)
@@ -258,13 +282,22 @@ enum TabStateMachine {
             newState.loadState = .refreshing
             effects.append(.fetchTrending)
 
-        // T8: .refreshing → fetchSucceeded → .loaded
+        // T8: .refreshing → fetchSucceeded → .loaded, prepend new papers
         case (.refreshing, .fetchSucceeded(let papers, _)):
-            newState.loadState = .loaded
-            newState.papers = papers
-            newState.hasMore = false
-            newState.lastFetchedAt = now
-            if !papers.isEmpty {
+            let existingIds = Set(state.papers.map(\.id))
+            let newPapers = papers.filter { !existingIds.contains($0.id) }
+            if newPapers.isEmpty {
+                newState.lastFetchedAt = now
+                newState.loadState = .loaded
+            } else {
+                newState.papers = newPapers + state.papers
+                newState.newPaperCount = newPapers.count
+                newState.lastFetchedAt = now
+                newState.hasMore = false
+                newState.loadState = .loaded
+                if let scrollPos = state.scrollPosition, !scrollPos.isEmpty {
+                    newState.showNewPapersPill = true
+                }
                 effects.append(.queueSummaries)
             }
 
@@ -314,10 +347,55 @@ enum TabStateMachine {
         // New papers pill
         case (_, .newPapersPillTapped):
             newState.showNewPapersPill = false
+            newState.resumeScrollPosition = state.scrollPosition
+            newState.newPaperCount = 0
             effects.append(.scrollToTop)
 
         case (_, .newPapersPillDismissed):
             newState.showNewPapersPill = false
+
+        case (_, .resumeReadingTapped):
+            newState.scrollPosition = state.resumeScrollPosition
+            newState.resumeScrollPosition = nil
+
+        // Scroll position changed → persist
+        case (_, .scrollPositionChanged(let pos)):
+            newState.scrollPosition = pos
+            if let pos {
+                effects.append(.saveScrollPosition(pos))
+            }
+
+        default:
+            break
+        }
+
+        return (newState, effects)
+    }
+
+    // MARK: - Topics Tab
+
+    /// Topics tab is managed by TopicListViewModel, not the feed state machine.
+    /// Only scroll position save/restore is handled here.
+    private static func transitionTopics(
+        state: TabState,
+        event: FeedEvent,
+        now: Date
+    ) -> (TabState, [FeedSideEffect]) {
+        var newState = state
+        var effects: [FeedSideEffect] = []
+
+        switch event {
+        case .tabBecameActive:
+            newState.loadState = .loaded
+            if state.loadState == .loaded {
+                effects.append(.restoreScrollPosition)
+            }
+
+        case .tabBecameInactive(let scrollPos):
+            newState.scrollPosition = scrollPos
+            if let scrollPos {
+                effects.append(.saveScrollPosition(scrollPos))
+            }
 
         default:
             break
@@ -368,8 +446,16 @@ enum TabStateMachine {
         case .appForegrounded:
             effects.append(.querySwiftData)
 
+        // S5: fetchSucceeded from querySwiftData → update papers
+        case .fetchSucceeded(let papers, _):
+            newState.papers = papers
+            newState.loadState = .loaded
+            if !papers.isEmpty {
+                effects.append(.queueSummaries)
+            }
+
         // Everything else: no-op for saved tab
-        // categoriesChanged, loadMoreTriggered, retryTapped, fetch events, etc.
+        // categoriesChanged, loadMoreTriggered, retryTapped, etc.
         default:
             break
         }

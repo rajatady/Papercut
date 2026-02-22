@@ -231,7 +231,7 @@ struct LatestTabTests {
     }
 
     // L11: .refreshing → fetch succeeds → .loaded, data replaced
-    @Test func L11_refreshing_fetchSucceeds_replacesData() {
+    @Test func L11_refreshing_fetchSucceeds_prependsNewPapers() {
         let state = refreshingState(paperCount: 5)
         let freshPapers = makePapers(count: 8, idPrefix: "fresh")
         let now = Date()
@@ -242,8 +242,11 @@ struct LatestTabTests {
             now: now
         )
         #expect(newState.loadState == .loaded)
-        #expect(newState.papers.count == 8)
+        // 8 new + 5 existing = 13 (prepend, not replace)
+        #expect(newState.papers.count == 13)
         #expect(newState.papers[0].id == "fresh_0")
+        #expect(newState.papers[8].id == "paper_0")
+        #expect(newState.newPaperCount == 8)
         #expect(newState.page == 0)
         #expect(newState.lastFetchedAt == now)
         #expect(effects.contains(.queueSummaries))
@@ -550,20 +553,25 @@ struct TrendingTabTests {
     }
 
     // T8: .refreshing → fetch succeeds → .loaded
-    @Test func T8_refreshing_fetchSucceeds_replacesData() {
+    @Test func T8_refreshing_fetchSucceeds_prependsNewPapers() {
         let state = refreshingState(paperCount: 5)
         let freshPapers = makePapers(count: 12, idPrefix: "trending")
         let now = Date()
-        let (newState, _) = TabStateMachine.transition(
+        let (newState, effects) = TabStateMachine.transition(
             state: state,
             event: .fetchSucceeded(papers: freshPapers, hasMore: false),
             tab: .trending,
             now: now
         )
         #expect(newState.loadState == .loaded)
-        #expect(newState.papers.count == 12)
+        // 12 new + 5 existing = 17 (prepend, not replace)
+        #expect(newState.papers.count == 17)
+        #expect(newState.papers[0].id == "trending_0")
+        #expect(newState.papers[12].id == "paper_0")
+        #expect(newState.newPaperCount == 12)
         #expect(newState.hasMore == false)
         #expect(newState.lastFetchedAt == now)
+        #expect(effects.contains(.queueSummaries))
     }
 
     // T9: .refreshing → fetch fails → .loaded + toast
@@ -742,6 +750,33 @@ struct SavedTabTests {
         #expect(newState.papers.count == 3) // unchanged
         #expect(!effects.contains(.cancelFetch))
     }
+
+    // S5 (fix): fetchSucceeded → papers stored in state
+    @Test func S5_fetchSucceeded_storesPapers() {
+        let state = TabState.initial
+        let papers = makePapers(count: 3)
+        let (newState, effects) = TabStateMachine.transition(
+            state: state,
+            event: .fetchSucceeded(papers: papers, hasMore: false),
+            tab: .saved
+        )
+        #expect(newState.papers.count == 3)
+        #expect(newState.loadState == .loaded)
+        #expect(effects.contains(.queueSummaries))
+    }
+
+    // fetchSucceeded with empty papers → no queueSummaries
+    @Test func S_fetchSucceeded_emptyPapers_noQueueSummaries() {
+        let state = TabState.initial
+        let (newState, effects) = TabStateMachine.transition(
+            state: state,
+            event: .fetchSucceeded(papers: [], hasMore: false),
+            tab: .saved
+        )
+        #expect(newState.papers.isEmpty)
+        #expect(newState.loadState == .loaded)
+        #expect(!effects.contains(.queueSummaries))
+    }
 }
 
 // MARK: - New Papers Pill Tests
@@ -775,14 +810,17 @@ struct NewPapersPillTests {
         #expect(newState.showNewPapersPill == false)
     }
 
-    // Pill tapped → scroll to top, dismiss
-    @Test func newPapersPill_tapped_scrollsToTop_dismissesPill() {
+    // Pill tapped → scroll to top, dismiss, save resume position
+    @Test func newPapersPill_tapped_scrollsToTop_savesResumePosition() {
         var state = loadedState(paperCount: 5, scrollPosition: "paper_3")
         state.showNewPapersPill = true
+        state.newPaperCount = 3
         let (newState, effects) = TabStateMachine.transition(
             state: state, event: .newPapersPillTapped, tab: .latest
         )
         #expect(newState.showNewPapersPill == false)
+        #expect(newState.resumeScrollPosition == "paper_3")
+        #expect(newState.newPaperCount == 0)
         #expect(effects.contains(.scrollToTop))
     }
 
@@ -794,5 +832,32 @@ struct NewPapersPillTests {
             state: state, event: .newPapersPillDismissed, tab: .latest
         )
         #expect(newState.showNewPapersPill == false)
+    }
+
+    // Resume reading → restores scroll position, clears resume
+    @Test func resumeReading_restoresPosition_clearsResume() {
+        var state = loadedState(paperCount: 10, scrollPosition: nil)
+        state.resumeScrollPosition = "paper_7"
+        let (newState, _) = TabStateMachine.transition(
+            state: state, event: .resumeReadingTapped, tab: .latest
+        )
+        #expect(newState.scrollPosition == "paper_7")
+        #expect(newState.resumeScrollPosition == nil)
+    }
+
+    // Refresh with no new papers → no pill, no count change
+    @Test func refresh_noNewPapers_noPill() {
+        // Refresh returns same papers that already exist
+        let state = refreshingState(paperCount: 5, scrollPosition: "paper_2")
+        let samePapers = makePapers(count: 5) // same ids as existing
+        let (newState, effects) = TabStateMachine.transition(
+            state: state,
+            event: .fetchSucceeded(papers: samePapers, hasMore: true),
+            tab: .latest
+        )
+        #expect(newState.showNewPapersPill == false)
+        #expect(newState.newPaperCount == 0)
+        #expect(newState.papers.count == 5)
+        #expect(!effects.contains(.queueSummaries))
     }
 }

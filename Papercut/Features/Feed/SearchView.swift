@@ -8,8 +8,10 @@ import SwiftUI
 struct SearchView: View {
     @Environment(FeedViewModel.self) private var viewModel
     @Environment(ThemeManager.self) private var theme
+    @Environment(PreferencesStore.self) private var preferencesStore
     @Environment(\.dismiss) private var dismiss
     @State private var searchText = ""
+    @State private var submittedQuery = ""
     @State private var isSearching = false
     @State private var searchResults: [Paper] = []
     @State private var recentSearches: [String] = []
@@ -17,6 +19,10 @@ struct SearchView: View {
     @State private var selectedPaper: Paper?
     @State private var browserURL: URL?
     @State private var showSuggestions = true
+    @State private var showingAddTopic = false
+    @State private var searchSortBy: ArXivSortBy = .relevance
+    @State private var searchInMyCategories = false
+    @State private var searchTask: Task<Void, Never>?
 
     @FocusState private var isSearchFieldFocused: Bool
 
@@ -34,6 +40,10 @@ struct SearchView: View {
             VStack(spacing: 0) {
                 searchBar
                     .padding(.top, Spacing.lg)
+
+                if !preferencesStore.followedCategories.isEmpty {
+                    categoryScopeToggle
+                }
 
                 if isSearching {
                     loadingView
@@ -123,6 +133,49 @@ struct SearchView: View {
         .padding(.horizontal, LayoutConstants.Screen.paddingHorizontal)
         .padding(.bottom, Spacing.md)
         .animation(.easeInOut(duration: 0.2), value: searchText.isEmpty)
+    }
+
+    // MARK: - Category Scope Toggle
+
+    private var categoryScopeToggle: some View {
+        HStack(spacing: Spacing.md) {
+            scopeButton(title: "All", isSelected: !searchInMyCategories) {
+                guard searchInMyCategories else { return }
+                searchInMyCategories = false
+                reSearchIfNeeded()
+            }
+            scopeButton(title: "My Categories", isSelected: searchInMyCategories) {
+                guard !searchInMyCategories else { return }
+                searchInMyCategories = true
+                reSearchIfNeeded()
+            }
+            Spacer()
+        }
+        .padding(.horizontal, LayoutConstants.Screen.paddingHorizontal)
+        .padding(.vertical, Spacing.sm)
+    }
+
+    private func scopeButton(title: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.caption)
+                .fontWeight(.semibold)
+                .padding(.horizontal, Spacing.xl)
+                .padding(.vertical, Spacing.md)
+                .background(isSelected ? theme.colors.accent.opacity(0.15) : theme.colors.surface.opacity(theme.isDark ? 0.2 : 0.5))
+                .foregroundStyle(isSelected ? theme.colors.accent : theme.colors.textSecondary)
+                .clipShape(Capsule())
+                .overlay {
+                    Capsule()
+                        .strokeBorder(isSelected ? theme.colors.accent.opacity(0.3) : Color.clear, lineWidth: 1)
+                }
+        }
+        .buttonStyle(PressButtonStyle())
+    }
+
+    private func reSearchIfNeeded() {
+        guard !submittedQuery.isEmpty, !showSuggestions else { return }
+        performSearch()
     }
 
     // MARK: - Suggestions View
@@ -251,7 +304,7 @@ struct SearchView: View {
     private var searchResultsList: some View {
         ScrollView(showsIndicators: false) {
             LazyVStack(spacing: Spacing.md) {
-                // Results count
+                // Results count + sort
                 HStack {
                     Text("\(searchResults.count) results")
                         .font(.caption)
@@ -262,12 +315,23 @@ struct SearchView: View {
                         .font(.caption)
                         .foregroundStyle(theme.colors.textTertiary)
 
-                    Text("\"\(searchText)\"")
+                    Text("\"\(submittedQuery)\"")
                         .font(.caption)
                         .fontWeight(.semibold)
                         .foregroundStyle(theme.colors.textPrimary)
 
                     Spacer()
+
+                    ThemedPicker(
+                        title: "Sort by",
+                        selection: $searchSortBy,
+                        options: ArXivSortBy.searchCases,
+                        label: { $0.displayName },
+                        icon: { $0.iconName }
+                    )
+                    .onChange(of: searchSortBy) { _, _ in
+                        performSearch()
+                    }
                 }
                 .padding(.horizontal, LayoutConstants.Screen.paddingHorizontal)
                 .padding(.top, Spacing.md)
@@ -317,8 +381,36 @@ struct SearchView: View {
                 }
             }
         }
+        .overlay(alignment: .bottom) {
+            if !searchResults.isEmpty {
+                Button {
+                    showingAddTopic = true
+                } label: {
+                    HStack(spacing: Spacing.md) {
+                        Image(systemName: "bookmark.circle.fill")
+                            .font(.system(size: 18))
+                        Text("Track as Research Topic")
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
+                    }
+                    .foregroundStyle(theme.colors.background)
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 14)
+                    .background(theme.colors.textPrimary)
+                    .clipShape(Capsule())
+                    .shadow(color: .black.opacity(0.15), radius: 8, y: 4)
+                }
+                .buttonStyle(PressButtonStyle())
+                .padding(.bottom, Spacing.xxxl)
+            }
+        }
         .sheet(item: $selectedPaper) { paper in
             PaperDetailSheet(paper: paper, browserURL: $browserURL)
+        }
+        .sheet(isPresented: $showingAddTopic) {
+            AddTopicSheet(initialQuery: submittedQuery) { name, query, sortBy in
+                AppDependencies.shared.topicListViewModel.createTopic(name: name, query: query, sortBy: sortBy)
+            }
         }
     }
 
@@ -410,19 +502,32 @@ struct SearchView: View {
         guard !query.isEmpty else { return }
 
         showSuggestions = false
-        isSearching = true
+        submittedQuery = query
         error = nil
         saveRecentSearch(query)
 
-        Task {
+        // Cancel any in-flight search immediately
+        searchTask?.cancel()
+
+        isSearching = true
+        let categories = searchInMyCategories ? preferencesStore.followedCategories : []
+        let sortBy = searchSortBy
+
+        searchTask = Task {
             do {
+                try Task.checkCancellation()
                 let results = try await viewModel.paperRepository.searchPapers(
                     query: query,
-                    page: 0
+                    page: 0,
+                    sortBy: sortBy,
+                    categories: categories
                 )
+                try Task.checkCancellation()
                 withAnimation(AppAnimation.Interactive.spring) {
                     searchResults = results
                 }
+            } catch is CancellationError {
+                return
             } catch {
                 self.error = error
             }
@@ -833,4 +938,5 @@ struct FlowLayout: Layout {
     SearchView()
         .environment(AppDependencies.shared.feedViewModel)
         .environment(ThemeManager())
+        .environment(PreferencesStore())
 }

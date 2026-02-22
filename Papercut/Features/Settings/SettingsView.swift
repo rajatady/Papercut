@@ -4,6 +4,7 @@
 //
 
 import SwiftUI
+import UserNotifications
 
 struct SettingsView: View {
     @Environment(PreferencesStore.self) private var preferencesStore
@@ -12,6 +13,9 @@ struct SettingsView: View {
 
     @State private var showingCategoryPicker = false
     @State private var showingStylePicker = false
+    @State private var notificationsEnabled: Bool = false
+    @State private var notificationsDeniedByOS = false
+    @State private var digestTime = Date()
 
     var body: some View {
         NavigationStack {
@@ -136,6 +140,89 @@ struct SettingsView: View {
                     Text("Feed")
                 }
 
+                // Notifications Section
+                Section {
+                    Toggle(isOn: $notificationsEnabled) {
+                        Label("Enable Notifications", systemImage: "bell.badge")
+                    }
+                    .onChange(of: notificationsEnabled) { _, enabled in
+                        Task {
+                            if enabled {
+                                let granted = await preferencesStore.setNotificationsEnabled(true)
+                                if !granted {
+                                    notificationsEnabled = false
+                                    // Check if denied at OS level
+                                    let status = await NotificationManager.shared.authorizationStatus()
+                                    notificationsDeniedByOS = (status == .denied)
+                                }
+                            } else {
+                                await preferencesStore.setNotificationsEnabled(false)
+                            }
+                        }
+                    }
+
+                    if notificationsDeniedByOS {
+                        HStack {
+                            Text("Notifications are disabled in system settings")
+                                .font(.caption)
+                                .foregroundStyle(Color(hex: "E4A853"))
+
+                            Spacer()
+
+                            Button("Open Settings") {
+                                if let url = URL(string: UIApplication.openSettingsURLString) {
+                                    UIApplication.shared.open(url)
+                                }
+                            }
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                        }
+                    }
+
+                    if preferencesStore.notificationsEnabled {
+                        Toggle(isOn: Binding(
+                            get: { preferencesStore.dailyDigestEnabled },
+                            set: { preferencesStore.setDailyDigestEnabled($0) }
+                        )) {
+                            Label("Daily Digest", systemImage: "newspaper")
+                        }
+
+                        if preferencesStore.dailyDigestEnabled {
+                            DatePicker(
+                                selection: $digestTime,
+                                displayedComponents: .hourAndMinute
+                            ) {
+                                Label("Delivery Time", systemImage: "clock")
+                            }
+                            .onChange(of: digestTime) { _, newTime in
+                                let components = Calendar.current.dateComponents([.hour, .minute], from: newTime)
+                                preferencesStore.setDailyDigestTime(
+                                    hour: components.hour ?? 9,
+                                    minute: components.minute ?? 0
+                                )
+                            }
+                        }
+
+                        Toggle(isOn: Binding(
+                            get: { preferencesStore.topicNotificationsEnabled },
+                            set: { preferencesStore.setTopicNotificationsEnabled($0) }
+                        )) {
+                            Label("Topic Updates", systemImage: "bookmark")
+                        }
+
+                        Toggle(isOn: Binding(
+                            get: { preferencesStore.newFeedItemsNotificationEnabled },
+                            set: { preferencesStore.setNewFeedItemsNotificationEnabled($0) }
+                        )) {
+                            Label("New Papers Alert", systemImage: "doc.badge.plus")
+                        }
+                    }
+                } header: {
+                    Text("Notifications")
+                } footer: {
+                    Text("Get notified about new papers in your research areas.")
+                }
+
                 // Feedback & Support
                 Section {
                     feedbackLink(
@@ -224,6 +311,13 @@ struct SettingsView: View {
             }
             .sheet(isPresented: $showingStylePicker) {
                 SummaryStylePicker()
+            }
+            .onAppear {
+                notificationsEnabled = preferencesStore.notificationsEnabled
+                var components = DateComponents()
+                components.hour = preferencesStore.dailyDigestHour
+                components.minute = preferencesStore.dailyDigestMinute
+                digestTime = Calendar.current.date(from: components) ?? Date()
             }
         }
     }

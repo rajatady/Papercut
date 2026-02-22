@@ -238,8 +238,8 @@ struct FeedStateMachineInvariantTests {
         #expect(newState.hasMore == false)
     }
 
-    // C9: Saved tab never makes network request
-    @Test func C9_savedNeverMakesNetworkRequest() {
+    // C9: Saved and Topics tabs never make network requests
+    @Test func C9_savedAndTopicsNeverMakeNetworkRequests() {
         let allEvents: [FeedEvent] = [
             .tabBecameActive,
             .tabBecameInactive(saveScrollPosition: nil),
@@ -254,18 +254,20 @@ struct FeedStateMachineInvariantTests {
             .paperUnbookmarked(paperId: "p1"),
         ]
 
-        for event in allEvents {
-            let state = loadedState(paperCount: 3)
-            let (_, effects) = TabStateMachine.transition(
-                state: state, event: event, tab: .saved
-            )
-            let hasNetworkEffect = effects.contains(where: {
-                switch $0 {
-                case .fetch, .fetchTrending: return true
-                default: return false
-                }
-            })
-            #expect(!hasNetworkEffect, "Saved tab made network request for \(event)")
+        for tab: FeedTab in [.saved, .topics] {
+            for event in allEvents {
+                let state = loadedState(paperCount: 3)
+                let (_, effects) = TabStateMachine.transition(
+                    state: state, event: event, tab: tab
+                )
+                let hasNetworkEffect = effects.contains(where: {
+                    switch $0 {
+                    case .fetch, .fetchTrending: return true
+                    default: return false
+                    }
+                })
+                #expect(!hasNetworkEffect, "\(tab) tab made network request for \(event)")
+            }
         }
     }
 

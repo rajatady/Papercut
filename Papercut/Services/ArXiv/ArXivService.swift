@@ -7,7 +7,7 @@ import Foundation
 
 protocol ArXivServiceProtocol: Sendable {
     func fetchPapers(categories: [String], page: Int, pageSize: Int, sortBy: ArXivSortBy) async throws -> ArXivResponse
-    func searchPapers(query: String, page: Int, pageSize: Int) async throws -> ArXivResponse
+    func searchPapers(query: String, page: Int, pageSize: Int, sortBy: ArXivSortBy, sortOrder: ArXivSortOrder, categories: [String]) async throws -> ArXivResponse
     func fetchTrending(categories: [String], limit: Int) async throws -> ArXivResponse
     func fetchPaper(id: String) async throws -> Paper?
 }
@@ -57,7 +57,10 @@ final class ArXivService: ArXivServiceProtocol, @unchecked Sendable {
     func searchPapers(
         query: String,
         page: Int = 0,
-        pageSize: Int = ArXivEndpoint.defaultPageSize
+        pageSize: Int = ArXivEndpoint.defaultPageSize,
+        sortBy: ArXivSortBy = .relevance,
+        sortOrder: ArXivSortOrder = .descending,
+        categories: [String] = []
     ) async throws -> ArXivResponse {
         guard !query.trimmingCharacters(in: .whitespaces).isEmpty else {
             return ArXivResponse(papers: [], totalResults: 0, hasMore: false)
@@ -70,7 +73,9 @@ final class ArXivService: ArXivServiceProtocol, @unchecked Sendable {
             searchTerm: query,
             maxResults: pageSize,
             start: start,
-            sortBy: .relevance
+            sortBy: sortBy,
+            sortOrder: sortOrder,
+            categories: categories
         ).url else {
             throw ArXivServiceError.invalidURL
         }

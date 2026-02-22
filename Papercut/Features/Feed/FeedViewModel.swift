@@ -7,16 +7,23 @@ import Foundation
 import SwiftUI
 import SwiftData
 
+enum ListBoundaryEdge {
+    case top
+    case bottom
+}
+
 enum FeedTab: String, CaseIterable {
     case latest = "Latest"
     case trending = "Trending"
     case saved = "Saved"
+    case topics = "Topics"
 
     var iconName: String {
         switch self {
         case .latest: return "clock.fill"
         case .trending: return "flame.fill"
         case .saved: return "bookmark.fill"
+        case .topics: return "text.magnifyingglass"
         }
     }
 }
@@ -29,6 +36,7 @@ final class FeedViewModel: SummarizationQueueDelegate {
         .latest: .initial,
         .trending: .initial,
         .saved: .initial,
+        .topics: .initial,
     ]
 
     // Current feed state
@@ -42,6 +50,9 @@ final class FeedViewModel: SummarizationQueueDelegate {
     var showNewPapersPill: Bool {
         tabStates[currentTab]?.showNewPapersPill ?? false
     }
+
+    // List boundary haptic trigger
+    var lastBoundaryReached: ListBoundaryEdge?
 
     // Search state
     var searchQuery = ""
@@ -57,15 +68,22 @@ final class FeedViewModel: SummarizationQueueDelegate {
     /// Active async tasks per tab for cancellation
     private var activeTasks: [FeedTab: Task<Void, Never>] = [:]
 
+    // MARK: - Topic Feed State
+    private(set) var activeTopic: Topic?
+    private(set) var topicPopulationProgress: (fetched: Int, total: Int)?
+    private var topicPopulationTask: Task<Void, Never>?
+
     // MARK: - Dependencies
     let paperRepository: PaperRepository
+    let topicRepository: TopicRepository
     private let preferencesStore: PreferencesStore
     private let cloudStore = CloudSummaryStore.shared
     private let summarizationQueue = SummarizationQueue.shared
     private let executor: SideEffectExecutor
 
-    init(repository: PaperRepository, preferencesStore: PreferencesStore) {
+    init(repository: PaperRepository, topicRepository: TopicRepository, preferencesStore: PreferencesStore) {
         self.paperRepository = repository
+        self.topicRepository = topicRepository
         self.preferencesStore = preferencesStore
         self.executor = RealSideEffectExecutor(paperRepository: repository)
 
@@ -79,8 +97,9 @@ final class FeedViewModel: SummarizationQueueDelegate {
     }
 
     // For testing — inject a custom executor
-    init(repository: PaperRepository, preferencesStore: PreferencesStore, executor: SideEffectExecutor) {
+    init(repository: PaperRepository, topicRepository: TopicRepository, preferencesStore: PreferencesStore, executor: SideEffectExecutor) {
         self.paperRepository = repository
+        self.topicRepository = topicRepository
         self.preferencesStore = preferencesStore
         self.executor = executor
 
@@ -209,7 +228,16 @@ final class FeedViewModel: SummarizationQueueDelegate {
                 }
             }
 
-        case .restoreScrollPosition, .saveScrollPosition, .scrollToTop, .none:
+        case .saveScrollPosition(let pos):
+            preferencesStore.saveScrollPosition(pos, for: tab)
+
+        case .restoreScrollPosition:
+            let saved = preferencesStore.savedScrollPosition(for: tab)
+            if let saved {
+                tabStates[tab]?.scrollPosition = saved
+            }
+
+        case .scrollToTop, .none:
             break
 
         case .fetch, .fetchTrending, .querySwiftData:
@@ -248,14 +276,13 @@ final class FeedViewModel: SummarizationQueueDelegate {
         await sendAndWait(.pullToRefresh)
     }
 
-    func switchTab(to tab: FeedTab) async {
+    func switchTab(to tab: FeedTab, fromScrollPosition: String? = nil) async {
         guard currentTab != tab else { return }
 
         // Save scroll position and deactivate old tab
-        send(.tabBecameInactive(saveScrollPosition: nil), for: currentTab)
+        send(.tabBecameInactive(saveScrollPosition: fromScrollPosition), for: currentTab)
 
         currentTab = tab
-        currentPaperIndex = 0
 
         // Activate new tab
         await sendAndWait(.tabBecameActive, for: tab)
@@ -276,11 +303,28 @@ final class FeedViewModel: SummarizationQueueDelegate {
             await queueSummariesForVisiblePaper(at: index)
         }
 
+        // Boundary haptic detection
+        let p = displayPapers
+        if p.count > 0 {
+            if index == 0 {
+                lastBoundaryReached = .top
+            } else if index == p.count - 1 {
+                lastBoundaryReached = .bottom
+            } else {
+                lastBoundaryReached = nil
+            }
+        }
+
+        currentPaperIndex = index
+
         // Load more when near the end
-        let p = papers
         if p.count > 0 && index >= max(0, p.count - 3) {
             send(.loadMoreTriggered)
         }
+    }
+
+    func clearBoundary() {
+        lastBoundaryReached = nil
     }
 
     func toggleBookmark(for paper: Paper) {
@@ -295,7 +339,118 @@ final class FeedViewModel: SummarizationQueueDelegate {
     }
 
     func dismissNewPapersPill() {
+        send(.newPapersPillDismissed)
+    }
+
+    func scrollToNewPapers() {
         send(.newPapersPillTapped)
+    }
+
+    var hasResumePosition: Bool {
+        tabStates[currentTab]?.resumeScrollPosition != nil
+    }
+
+    func resumeReading() -> String? {
+        let pos = tabStates[currentTab]?.resumeScrollPosition
+        send(.resumeReadingTapped)
+        return pos
+    }
+
+    func onScrollPositionChanged(_ id: String?) {
+        send(.scrollPositionChanged(id))
+    }
+
+    // MARK: - Topic Feed
+
+    /// Opens a topic and loads its papers into the .topics tab state.
+    func openTopic(_ topic: Topic) {
+        activeTopic = topic
+        currentPaperIndex = 0
+
+        // Load cached papers (offline-first)
+        let cachedPapers = topicRepository.loadCachedPapers(for: topic)
+
+        if !cachedPapers.isEmpty {
+            tabStates[.topics]?.papers = cachedPapers
+            tabStates[.topics]?.loadState = .loaded
+            tabStates[.topics]?.hasMore = false
+
+            // Restore scroll position
+            if let scrollPos = topic.scrollPosition {
+                tabStates[.topics]?.scrollPosition = scrollPos
+            }
+        } else {
+            // No cached papers — start population
+            tabStates[.topics]?.loadState = .loading
+            tabStates[.topics]?.papers = []
+            populateActiveTopic()
+        }
+    }
+
+    /// Closes the topic feed and returns to topic list.
+    func closeTopic() {
+        // Save scroll position to Topic model
+        if let topic = activeTopic, let scrollPos = tabStates[.topics]?.scrollPosition {
+            topic.scrollPosition = scrollPos
+        }
+
+        topicPopulationTask?.cancel()
+        topicPopulationTask = nil
+        activeTopic = nil
+        topicPopulationProgress = nil
+        currentPaperIndex = 0
+
+        // Reset topics tab state to show topic list
+        tabStates[.topics] = .initial
+        tabStates[.topics]?.loadState = .loaded
+    }
+
+    /// Starts populating the active topic from arXiv.
+    func populateActiveTopic() {
+        guard let topic = activeTopic else { return }
+
+        topicPopulationTask?.cancel()
+        topicPopulationTask = Task { [weak self] in
+            guard let self else { return }
+
+            do {
+                try await self.topicRepository.populateTopic(topic) { fetched, total in
+                    Task { @MainActor in
+                        self.topicPopulationProgress = (fetched: fetched, total: total)
+
+                        // Incrementally update papers in the tab
+                        let papers = self.topicRepository.loadCachedPapers(for: topic)
+                        self.tabStates[.topics]?.papers = papers
+                        self.tabStates[.topics]?.loadState = .loaded
+                    }
+                }
+
+                // Final update
+                self.topicPopulationProgress = nil
+                let papers = self.topicRepository.loadCachedPapers(for: topic)
+                self.tabStates[.topics]?.papers = papers
+            } catch {
+                if !Task.isCancelled {
+                    self.showToast("Failed to populate topic: \(error.localizedDescription)")
+                    self.tabStates[.topics]?.loadState = .loaded
+                }
+            }
+        }
+    }
+
+    /// Check for new papers in the active topic.
+    func checkForNewTopicPapers() async -> Int {
+        guard let topic = activeTopic else { return 0 }
+        do {
+            let newCount = try await topicRepository.checkForNewPapers(topic)
+            if newCount > 0 {
+                let papers = topicRepository.loadCachedPapers(for: topic)
+                tabStates[.topics]?.papers = papers
+            }
+            return newCount
+        } catch {
+            return 0
+        }
     }
 
     // MARK: - Toast

@@ -25,7 +25,7 @@ final class MockArXivService: ArXivServiceProtocol, @unchecked Sendable {
         return ArXivResponse(papers: papers, totalResults: totalResults, hasMore: papers.count < totalResults)
     }
 
-    func searchPapers(query: String, page: Int, pageSize: Int) async throws -> ArXivResponse {
+    func searchPapers(query: String, page: Int, pageSize: Int, sortBy: ArXivSortBy, sortOrder: ArXivSortOrder = .descending, categories: [String] = []) async throws -> ArXivResponse {
         searchCallCount += 1
         if shouldFail { throw failError }
         let filtered = papers.filter { $0.title.lowercased().contains(query.lowercased()) }
@@ -69,7 +69,7 @@ private func makeTestDependencies(
     mockExecutor: MockSideEffectExecutor? = nil
 ) -> (FeedViewModel, MockArXivService, PreferencesStore, MockSideEffectExecutor) {
     let config = ModelConfiguration(isStoredInMemoryOnly: true)
-    let container = try! ModelContainer(for: Paper.self, Summary.self, configurations: config)
+    let container = try! ModelContainer(for: Paper.self, Summary.self, Topic.self, configurations: config)
     let modelContext = container.mainContext
 
     let mockArXiv = MockArXivService()
@@ -84,8 +84,13 @@ private func makeTestDependencies(
         modelContext: modelContext
     )
 
+    let topicRepository = TopicRepository(
+        modelContext: modelContext,
+        arXivService: mockArXiv
+    )
+
     let executor = mockExecutor ?? MockSideEffectExecutor()
-    let viewModel = FeedViewModel(repository: repository, preferencesStore: prefsStore, executor: executor)
+    let viewModel = FeedViewModel(repository: repository, topicRepository: topicRepository, preferencesStore: prefsStore, executor: executor)
     return (viewModel, mockArXiv, prefsStore, executor)
 }
 
@@ -455,15 +460,82 @@ struct FeedViewModelTests {
     // MARK: - FeedTab
 
     @Test func feedTab_allCases() {
-        #expect(FeedTab.allCases.count == 3)
+        #expect(FeedTab.allCases.count == 4)
         #expect(FeedTab.latest.rawValue == "Latest")
         #expect(FeedTab.trending.rawValue == "Trending")
         #expect(FeedTab.saved.rawValue == "Saved")
+        #expect(FeedTab.topics.rawValue == "Topics")
     }
 
     @Test func feedTab_iconNames() {
         #expect(FeedTab.latest.iconName == "clock.fill")
         #expect(FeedTab.trending.iconName == "flame.fill")
         #expect(FeedTab.saved.iconName == "bookmark.fill")
+        #expect(FeedTab.topics.iconName == "text.magnifyingglass")
+    }
+
+    // MARK: - List Boundary Haptics
+
+    @MainActor
+    @Test func boundaryReached_nilByDefault() {
+        let (vm, _, _, _) = makeTestDependencies()
+        #expect(vm.lastBoundaryReached == nil)
+    }
+
+    @MainActor
+    @Test func onPaperAppear_firstPaper_setsBoundaryToTop() {
+        let (vm, _, _, _) = makeTestDependencies()
+        let papers = makeSamplePapers(count: 5)
+        loadPapersIntoVM(vm, papers: papers)
+
+        vm.onPaperAppear(papers[0], at: 0)
+        #expect(vm.lastBoundaryReached == .top)
+    }
+
+    @MainActor
+    @Test func onPaperAppear_lastPaper_setsBoundaryToBottom() {
+        let (vm, _, _, _) = makeTestDependencies()
+        let papers = makeSamplePapers(count: 5)
+        loadPapersIntoVM(vm, papers: papers)
+
+        vm.onPaperAppear(papers[4], at: 4)
+        #expect(vm.lastBoundaryReached == .bottom)
+    }
+
+    @MainActor
+    @Test func onPaperAppear_middlePaper_clearsBoundary() {
+        let (vm, _, _, _) = makeTestDependencies()
+        let papers = makeSamplePapers(count: 5)
+        loadPapersIntoVM(vm, papers: papers)
+
+        vm.onPaperAppear(papers[0], at: 0)
+        #expect(vm.lastBoundaryReached == .top)
+
+        vm.onPaperAppear(papers[2], at: 2)
+        #expect(vm.lastBoundaryReached == nil)
+    }
+
+    @MainActor
+    @Test func onPaperAppear_singlePaper_setsBoundaryToTop() {
+        let (vm, _, _, _) = makeTestDependencies()
+        let papers = makeSamplePapers(count: 1)
+        loadPapersIntoVM(vm, papers: papers)
+
+        vm.onPaperAppear(papers[0], at: 0)
+        // Single paper is both top and bottom, but top takes precedence
+        #expect(vm.lastBoundaryReached == .top)
+    }
+
+    @MainActor
+    @Test func clearBoundary_resetsToNil() {
+        let (vm, _, _, _) = makeTestDependencies()
+        let papers = makeSamplePapers(count: 5)
+        loadPapersIntoVM(vm, papers: papers)
+
+        vm.onPaperAppear(papers[0], at: 0)
+        #expect(vm.lastBoundaryReached == .top)
+
+        vm.clearBoundary()
+        #expect(vm.lastBoundaryReached == nil)
     }
 }

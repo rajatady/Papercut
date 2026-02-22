@@ -28,7 +28,13 @@ Papercut/
 │   │   ├── FullScreenPaperCard.swift  # Single paper card — title, authors, categories, summary, actions
 │   │   ├── SearchView.swift       # Full-text arXiv search with themed results
 │   │   ├── PaperCardView.swift    # Compact card variant
-│   │   └── SummarySection.swift   # Summary display with style chips
+│   │   ├── SummarySection.swift   # Summary display with style chips
+│   │   └── StateMachine/          # Pure state machine for feed
+│   │       ├── TabState.swift     # TabState struct, LoadState enum
+│   │       ├── FeedEvent.swift    # All input events
+│   │       ├── FeedSideEffect.swift # All output effects
+│   │       ├── TabStateMachine.swift # Pure transition function
+│   │       └── SideEffectExecutor.swift # Protocol + real impl
 │   ├── Onboarding/
 │   │   └── OnboardingView.swift   # 4-page onboarding with category selection
 │   └── Settings/
@@ -71,8 +77,8 @@ All shared state uses `@Observable` classes injected via SwiftUI `.environment()
 - `PreferencesStore` — user preferences (categories, styles, sort order)
 - `ThemeManager` — light/dark mode
 
-### Generation-Based Load Cancellation
-`FeedViewModel.loadGeneration` (UInt) increments on every load. Async code checks `guard myGeneration == loadGeneration` before mutating state. `switchTab()` cancels `activeLoadTask` before starting a new one. This prevents stale API responses from overwriting the active tab's data.
+### Feed State Machine
+The feed uses a pure, deterministic state machine: `TabStateMachine.transition(state, event, tab) → (TabState, [FeedSideEffect])`. Each tab (Latest, Trending, Saved) owns an independent `TabState` with its own papers, pagination, scroll position, and load state. `FeedViewModel` orchestrates: holds `[FeedTab: TabState]`, dispatches events, executes side effects via the `SideEffectExecutor` protocol. State machine files live in `Features/Feed/StateMachine/`. 97 tests cover transitions and invariants.
 
 ### SwiftData Object Identity
 `PaperRepository.fetchPapers()` must return the actual SwiftData-managed `Paper` objects, not raw copies from the API response. This preserves `isBookmarked` state. When a paper already exists in the store, we update its fields but return the existing managed object.
@@ -93,6 +99,18 @@ Two custom `ButtonStyle` implementations: `PressButtonStyle` (scale 0.90) for pr
 - **Latest:** sorted by `submittedDate` descending, filtered by followed categories
 - **Trending:** last 30 days by `submittedDate` range, sorted by `relevance`
 - **Search:** `all:` prefix searches title/abstract/authors/comments/journal. Keyword matching across 2M+ papers. No semantic/fuzzy search.
+
+## SwiftData Testing Rules (CRITICAL)
+
+1. **Never create `ModelContainer` inside a helper function and return only the `ModelContext` or a repository.** The container gets deallocated when the helper returns, invalidating the context → `EXC_BREAKPOINT` crash on insert/save/fetch. Always keep the `ModelContainer` alive in the test method's own scope by inlining setup, or by returning the container itself.
+
+2. **MockArXivService.searchPapers filters papers by query match in title.** Test papers must have titles that contain the search query string, or the mock returns empty results.
+
+3. **Always use `-parallel-testing-enabled NO`** — concurrent SwiftData `ModelContainer` creation across test suites crashes the process.
+
+4. **ThemedPicker** (`Components/ThemedPicker.swift`) is the reusable native Apple `Menu`+`Picker` dropdown. Use it for all dropdowns — never create inline custom pickers.
+
+5. **Topics are created only from the Topics tab** (+ button in `TopicListView`), not from search results.
 
 ## Known Issues / Cleanup
 - `Components/FeedGlassHeader.swift` is unused — was replaced by native TabView. Safe to delete.

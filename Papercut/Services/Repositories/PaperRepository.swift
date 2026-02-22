@@ -14,7 +14,7 @@ enum FeedMode {
 
 protocol PaperRepositoryProtocol {
     func fetchPapers(categories: [String], page: Int, forceRefresh: Bool, mode: FeedMode) async throws -> [Paper]
-    func searchPapers(query: String, page: Int) async throws -> [Paper]
+    func searchPapers(query: String, page: Int, sortBy: ArXivSortBy, categories: [String]) async throws -> [Paper]
     func getPaper(id: String) async -> Paper?
     func summarize(paper: Paper, style: SummaryStyle) async throws -> Summary
     func summarizeStreaming(paper: Paper, style: SummaryStyle) -> AsyncThrowingStream<String, Error>
@@ -81,7 +81,10 @@ final class PaperRepository: PaperRepositoryProtocol {
             response = try await arXivService.searchPapers(
                 query: query,
                 page: page,
-                pageSize: ArXivEndpoint.defaultPageSize
+                pageSize: ArXivEndpoint.defaultPageSize,
+                sortBy: .relevance,
+                sortOrder: .descending,
+                categories: []
             )
         }
 
@@ -114,7 +117,7 @@ final class PaperRepository: PaperRepositoryProtocol {
         return result
     }
 
-    func searchPapers(query: String, page: Int = 0) async throws -> [Paper] {
+    func searchPapers(query: String, page: Int = 0, sortBy: ArXivSortBy = .relevance, categories: [String] = []) async throws -> [Paper] {
         guard !isFetching else { return [] }
         isFetching = true
         defer { isFetching = false }
@@ -122,7 +125,10 @@ final class PaperRepository: PaperRepositoryProtocol {
         let response = try await arXivService.searchPapers(
             query: query,
             page: page,
-            pageSize: ArXivEndpoint.defaultPageSize
+            pageSize: ArXivEndpoint.maxPageSize,
+            sortBy: sortBy,
+            sortOrder: .descending,
+            categories: categories
         )
 
         hasMorePapers = response.hasMore

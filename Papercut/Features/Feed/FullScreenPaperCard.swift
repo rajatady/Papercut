@@ -20,9 +20,10 @@ struct FullScreenPaperCard: View {
     @State private var showAbstract = false
     @State private var animateSummary = false
     @State private var breatheScale: CGFloat = 1.0
+    @State private var showBookmarkOverlay = false
 
-    /// Top offset: clearance for floating settings button overlay
-    private let topInset: CGFloat = 44
+    /// Top offset: clearance for floating header overlay (wordmark + buttons)
+    private let topInset: CGFloat = 54
     /// Bottom offset: breathing room above container edge (tab bar is handled by TabView)
     private let bottomInset: CGFloat = Spacing.lg
 
@@ -82,14 +83,49 @@ struct FullScreenPaperCard: View {
                         .padding(.horizontal, LayoutConstants.Screen.paddingHorizontal)
                         .padding(.bottom, bottomInset)
                 }
+
+                // Double-tap bookmark overlay (Instagram-style)
+                if showBookmarkOverlay {
+                    Image(systemName: "bookmark.fill")
+                        .font(.system(size: 80, weight: .thin))
+                        .foregroundStyle(.white)
+                        .shadow(color: .black.opacity(0.3), radius: 10)
+                        .transition(.scale(scale: 0.2).combined(with: .opacity))
+                        .allowsHitTesting(false)
+                }
+            }
+            .contentShape(Rectangle())
+            .onTapGesture(count: 2) {
+                handleDoubleTap()
             }
         }
         .sheet(isPresented: $showAbstract) {
             AbstractSheet(paper: paper, onOpenInBrowser: onOpenAbstract)
         }
+        .sensoryFeedback(.impact(weight: .medium), trigger: showBookmarkOverlay)
         .onAppear {
             withAnimation(AppAnimation.Breathe.animation) {
                 breatheScale = AppAnimation.Breathe.scaleUp
+            }
+        }
+    }
+
+    private func handleDoubleTap() {
+        // Only bookmark if not already bookmarked
+        if !paper.isBookmarked {
+            onToggleBookmark()
+        }
+
+        // Show overlay animation regardless
+        withAnimation(.easeOut(duration: 0.2)) {
+            showBookmarkOverlay = true
+        }
+
+        // Dismiss after a short moment
+        Task {
+            try? await Task.sleep(for: .milliseconds(800))
+            withAnimation(.easeIn(duration: 0.3)) {
+                showBookmarkOverlay = false
             }
         }
     }
