@@ -17,6 +17,17 @@
   No login. No tracking. No analytics. No cloud. Just papers.
 </p>
 
+<p align="center">
+  <img src="screenshots/marketing/appstore_iphone_01_hero.png" width="200" alt="Feed" />
+  <img src="screenshots/marketing/appstore_iphone_02_ai_summaries.png" width="200" alt="AI Summaries" />
+  <img src="screenshots/marketing/appstore_iphone_06_trending.png" width="200" alt="Trending" />
+</p>
+<p align="center">
+  <img src="screenshots/marketing/appstore_iphone_04_categories.png" width="200" alt="Categories" />
+  <img src="screenshots/marketing/appstore_iphone_05_privacy.png" width="200" alt="Privacy" />
+  <img src="screenshots/marketing/appstore_iphone_03_search.png" width="200" alt="Search" />
+</p>
+
 ---
 
 ## What is Papercut?
