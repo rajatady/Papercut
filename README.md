@@ -5,7 +5,7 @@
 <h1 align="center">Papercut</h1>
 
 <p align="center">
-  <strong>Research, distilled.</strong>
+  <strong>Research papers, distilled.</strong>
 </p>
 
 <p align="center">
