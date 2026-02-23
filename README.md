@@ -18,6 +18,12 @@
 </p>
 
 <p align="center">
+  <a href="https://apps.apple.com/us/app/papercut-research-distilled/id6759408514">
+    <img src="https://developer.apple.com/assets/elements/badges/download-on-the-app-store.svg" alt="Download on the App Store" height="40" />
+  </a>
+</p>
+
+<p align="center">
   <img src="screenshots/marketing/appstore_iphone_01_hero.png" width="200" alt="Feed" />
   <img src="screenshots/marketing/appstore_iphone_02_ai_summaries.png" width="200" alt="AI Summaries" />
   <img src="screenshots/marketing/appstore_iphone_06_trending.png" width="200" alt="Trending" />
